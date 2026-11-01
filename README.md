@@ -2,7 +2,7 @@
 
 Source data, analysis code and statistical outputs for:
 
-> Powell M, Gurr C, Jones S, O'Driscoll T, Ames R, Durmaz A, Thompson W, Eaton S, Bajaj-Elliott M, Mapstone L. **Oxygen Exposure Influences Microbial, Nutritional and Olfactory Characteristics of Expressed Breast Milk During Storage.** *Frontiers in [journal]*, 2026. DOI: [to be added on publication]
+> Powell M, Gurr C, Jones S, O'Driscoll T, Ames R, Durmaz A, Thompson W, Eaton S, Bajaj-Elliott M, Mapstone L. **Oxygen Exposure Influences Microbial, Nutritional and Olfactory Characteristics of Expressed Breast Milk During Storage.** *Frontiers in Nutrion*, 2026. 
 
 This repository holds the complete data and analyses underlying the figures and results reported in the paper. The study compared expressed breast milk (EBM) stored under reduced-oxygen and aerobic conditions for bacterial viability, total antioxidant capacity, vitamin C, long-chain polyunsaturated fatty acids (LC-PUFAs) and olfactory characteristics.
 
@@ -68,7 +68,7 @@ If you use this data or code, please cite the paper above.
 
 ## Licence
 
-Code is released under the MIT Licence. Data are released under CC BY 4.0. [Confirm before publishing]
+Code is released under the MIT Licence. Data are released under CC BY 4.0.
 
 ## Contact
 
