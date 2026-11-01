@@ -1,0 +1,5 @@
+"strain","test","n_pairs","fold","ci_lower","ci_upper","t","df","p_value","stars"
+"B. infantis","Paired t-test on log10(reduced oxygen/aerobic)",3,1511.40078288747,692.088354435781,3300.63685058698,40.3273482383697,2,0.000614328023238248,"***"
+"B. longum","Paired t-test on log10(reduced oxygen/aerobic)",3,25987.1731602271,23617.9323613874,28594.0851436986,457.525813436804,2,4.77711486908039e-06,"****"
+"B. bifidum","Paired t-test on log10(reduced oxygen/aerobic)",3,24225.5211108574,9657.92882881996,60766.2246734847,47.2321439362528,2,0.000447953350880271,"***"
+"B. breve","Paired t-test on log10(reduced oxygen/aerobic)",3,3323.33454519634,1845.85859567252,5983.42285004308,59.3326388773428,2,0.000283940713717409,"***"

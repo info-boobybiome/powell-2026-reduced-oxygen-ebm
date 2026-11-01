@@ -1,0 +1,307 @@
+---
+title: "Ascorbic acid in stored breast milk: reduced oxygen vs aerobic"
+output:
+  html_document:
+    toc: true
+    df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(ggplot2)
+library(patchwork)
+library(lmerTest)
+stopifnot(packageVersion("patchwork") >= "1.2.0")
+```
+
+## Configuration
+
+```{r config}
+CFG <- list(
+  data_path   = "VitaminC.xlsx",
+  sheet       = "ascorbic_acid_ug_per_mL",
+  results_dir = "results",
+  fig_dir     = "figures",
+  fig_name    = "ascorbic_acid_preservation",
+  raw_prefix  = c(low_oxygen = "reduced_oxygen"),
+  conditions  = c(reduced_oxygen = "Reduced oxygen", aerobic = "Aerobic"),
+  experiments = tibble::tribble(
+    ~experiment, ~endpoint, ~n, ~label,
+    "6h",        "6h",      8,  "6 h, room temperature",
+    "24h",       "24h",     13, "24 h, 4 \u00B0C"
+  ),
+  baseline    = "0h",
+  below_lod   = tibble::tribble(
+    ~donor, ~condition, ~time, ~lod,
+    "D160", "Aerobic",  "24h", 1.5,
+    "D165", "Aerobic",  "24h", 1.0,
+    "D167", "Aerobic",  "24h", 1.0
+  ),
+  lod_digits  = 2,
+  conf_level  = 0.95,
+  error_bar   = "SEM",
+  colours     = c("Reduced oxygen" = "#3B75AF", "Aerobic" = "#CA6627"),
+  y_limits    = c(0, 60),
+  fold_breaks = c(1, 1.5, 2, 5, 10),
+  fold_limits = c(0.9, 20),
+  width_mm    = 183,
+  height_mm   = 150,
+  base_size   = 9
+)
+dir.create(CFG$results_dir, showWarnings = FALSE)
+dir.create(CFG$fig_dir, showWarnings = FALSE)
+```
+
+## Helpers
+
+```{r helpers}
+p_star <- function(p) {
+  case_when(is.na(p) ~ "",
+            p < 0.0001 ~ "****", p < 0.001 ~ "***",
+            p < 0.01 ~ "**", p < 0.05 ~ "*", TRUE ~ "n.s.")
+}
+
+holm_sidak <- function(p) {
+  n <- length(p); o <- order(p)
+  adj <- cummax(1 - (1 - p[o])^(n - seq_len(n) + 1))
+  out <- numeric(n); out[o] <- pmin(1, adj); out
+}
+
+# Paired t-test with Fieller CI for the ratio of means
+paired_ratio <- function(ro, ae, conf = CFG$conf_level) {
+  n <- length(ro); q <- qt(1 - (1 - conf) / 2, n - 1)
+  vr <- var(ro) / n; va <- var(ae) / n; cv <- cov(ro, ae) / n
+  a <- mean(ae)^2 - q^2 * va
+  if (a <= 0) stop("Fieller interval is unbounded")
+  b <- -2 * (mean(ro) * mean(ae) - q^2 * cv)
+  cc <- mean(ro)^2 - q^2 * vr
+  ci <- (-b + c(-1, 1) * sqrt(b^2 - 4 * a * cc)) / (2 * a)
+  tt <- t.test(ro, ae, paired = TRUE)
+  tibble(n = n, fold = mean(ro) / mean(ae), ci_lower = ci[1], ci_upper = ci[2],
+         t = unname(tt$statistic), df = unname(tt$parameter), p_value = tt$p.value)
+}
+
+paired_stats <- function(d) {
+  d |>
+    pivot_wider(names_from = condition, values_from = value) |>
+    group_by(experiment, time) |>
+    summarise(paired_ratio(`Reduced oxygen`, Aerobic), .groups = "drop") |>
+    group_by(experiment) |>
+    mutate(p_adj = holm_sidak(p_value), stars = p_star(p_adj)) |>
+    ungroup()
+}
+
+fold_label <- function(x) paste0(format(x, drop0trailing = TRUE), "\u00D7")
+
+theme_pub <- function(base = CFG$base_size) {
+  theme_classic(base_size = base) +
+    theme(
+      panel.grid.major.y = element_line(colour = "grey85", linewidth = 0.3),
+      axis.line   = element_line(colour = "black", linewidth = 0.4),
+      axis.ticks  = element_line(colour = "black", linewidth = 0.3),
+      axis.text   = element_text(colour = "black"),
+      legend.position = "bottom",
+      legend.title = element_blank(),
+      plot.tag    = element_text(face = "bold", size = base + 6),
+      plot.margin = margin(4, 6, 4, 4)
+    )
+}
+
+save_fig <- function(plot, name, w_mm, h_mm, out_dir = CFG$fig_dir) {
+  ggsave(file.path(out_dir, paste0(name, ".png")), plot,
+         width = w_mm, height = h_mm, units = "mm", dpi = 600, bg = "white")
+  ok <- tryCatch({
+    ggsave(file.path(out_dir, paste0(name, ".pdf")), plot,
+           width = w_mm, height = h_mm, units = "mm", device = grDevices::cairo_pdf)
+    TRUE
+  }, error = function(e) FALSE)
+  if (!ok) ggsave(file.path(out_dir, paste0(name, ".pdf")), plot,
+                  width = w_mm, height = h_mm, units = "mm")
+  invisible(plot)
+}
+
+write_res <- function(df, name) {
+  write.csv(df, file.path(CFG$results_dir, paste0(name, ".csv")), row.names = FALSE)
+}
+```
+
+## Data
+
+```{r data}
+# Read the data
+raw <- read_excel(CFG$data_path, sheet = CFG$sheet)
+names(raw) <- sub(paste0("^", names(CFG$raw_prefix), "_"), paste0(CFG$raw_prefix, "_"), names(raw))
+
+# Check the data
+times <- c(CFG$baseline, CFG$experiments$endpoint)
+value_cols <- as.vector(outer(names(CFG$conditions), times, paste, sep = "_"))
+stopifnot("Unexpected columns" = setequal(names(raw), c("donor", value_cols)),
+          "Duplicate donors" = !anyDuplicated(raw$donor))
+vals <- unlist(raw[value_cols])
+if (any(!is.na(vals) & (!is.finite(vals) | vals < 0))) stop("Values must be finite and non-negative")
+for (tp in times) {
+  miss <- is.na(raw[[paste0("reduced_oxygen_", tp)]])
+  if (!identical(miss, is.na(raw[[paste0("aerobic_", tp)]]))) stop("Unpaired values at ", tp)
+}
+
+long <- raw |>
+  pivot_longer(-donor, names_to = c("condition", "time"),
+               names_pattern = "(reduced_oxygen|aerobic)_(.*)", values_to = "value") |>
+  mutate(condition = factor(CFG$conditions[condition], levels = CFG$conditions))
+
+dat <- CFG$experiments |>
+  pmap_dfr(function(experiment, endpoint, n, label) {
+    ids <- raw$donor[!is.na(raw[[paste0("reduced_oxygen_", endpoint)]])]
+    if (length(ids) != n) stop("Expected ", n, " donors at ", endpoint, ", found ", length(ids))
+    long |>
+      filter(donor %in% ids, time %in% c(CFG$baseline, endpoint)) |>
+      mutate(experiment = experiment, time = factor(time, levels = c(CFG$baseline, endpoint)))
+  }) |>
+  mutate(experiment = factor(experiment, levels = CFG$experiments$experiment))
+stopifnot(!anyNA(dat$value))
+```
+
+## Descriptives
+
+```{r descriptives}
+desc <- dat |>
+  group_by(experiment, time, condition) |>
+  summarise(n = n(), mean = mean(value), sd = sd(value), sem = sd / sqrt(n), .groups = "drop")
+write_res(desc, "ascorbic_acid_descriptives")
+desc
+```
+
+## Statistics
+
+```{r statistics}
+# Calculate stats
+wide <- dat |> pivot_wider(names_from = condition, values_from = value)
+stats <- paired_stats(dat)
+write_res(stats, "ascorbic_acid_statistics")
+stats
+```
+
+## Sensitivity
+
+```{r sensitivity}
+sens <- dat |>
+  group_split(experiment) |>
+  map_dfr(function(x) {
+    x <- mutate(x, cell = interaction(condition, time, sep = "|"))
+    fit <- lmer(value ~ 0 + cell + (1 | donor) + (1 | donor:time) + (1 | donor:condition),
+                data = x, REML = TRUE)
+    b <- names(fixef(fit))
+    x <- droplevels(x)
+    map_dfr(levels(x$time), function(tp) {
+      L <- (b == paste0("cellReduced oxygen|", tp)) - (b == paste0("cellAerobic|", tp))
+      ct <- contest(fit, L, joint = FALSE, ddf = "Satterthwaite")
+      tibble(experiment = x$experiment[1], time = tp, difference = ct$Estimate,
+             t = ct$`t value`, df = ct$df, p_value = ct$`Pr(>|t|)`)
+    }) |>
+      mutate(p_adj = holm_sidak(p_value), stars = p_star(p_adj))
+  })
+write_res(sens, "ascorbic_acid_sensitivity")
+sens
+```
+
+## LOD sensitivity
+
+```{r lod-sensitivity}
+# Check the below-LOD cells
+lod <- with(CFG$below_lod, lod[match(paste(dat$donor, dat$condition, dat$time),
+                                     paste(donor, condition, time))])
+if (sum(!is.na(lod)) != nrow(CFG$below_lod)) stop("Below-LOD cells not found in the data")
+if (any(dat$value[!is.na(lod)] != round(lod[!is.na(lod)] / sqrt(2), CFG$lod_digits)))
+  stop("Below-LOD cells do not equal LOD/sqrt(2)")
+
+# Calculate stats
+d_lod <- dat |> mutate(lod = lod) |> group_by(experiment) |> filter(any(!is.na(lod))) |> ungroup()
+scenarios <- list(
+  zero     = mutate(d_lod, value = if_else(is.na(lod), value, 0)),
+  lod      = mutate(d_lod, value = coalesce(lod, value)),
+  excluded = filter(d_lod, !donor %in% donor[!is.na(lod)])
+)
+lod_sens <- imap_dfr(scenarios, ~ mutate(paired_stats(select(.x, -lod)), below_lod = .y, .before = 1))
+write_res(lod_sens, "ascorbic_acid_lod_sensitivity")
+lod_sens
+```
+
+## Figure
+
+```{r figure, fig.width = CFG$width_mm / 25.4, fig.height = CFG$height_mm / 25.4}
+dodge <- position_dodge(width = 0.8)
+
+bar_panel <- function(ex) {
+  lab <- c("T0", CFG$experiments$label[CFG$experiments$experiment == ex])
+  x <- filter(dat, experiment == ex) |> droplevels()
+  d <- filter(desc, experiment == ex) |> droplevels() |>
+    mutate(err = if (CFG$error_bar == "SD") sd else sem)
+  br <- filter(stats, experiment == ex) |>
+    left_join(x |> group_by(time) |> summarise(top = max(value)), by = "time") |>
+    mutate(xn = as.numeric(droplevels(time)), y = top + 3)
+  ggplot(x, aes(time, value, fill = condition, colour = condition)) +
+    geom_col(data = d, aes(y = mean), position = dodge, width = 0.75,
+             alpha = 0.25, linewidth = 0.4) +
+    geom_point(position = position_jitterdodge(jitter.width = 0.25, dodge.width = 0.8, seed = 1),
+               size = 1, alpha = 0.8) +
+    geom_errorbar(data = d, aes(y = mean, ymin = mean - err, ymax = mean + err),
+                  position = dodge, width = 0.15, linewidth = 0.5) +
+    geom_point(data = d, aes(y = mean), position = dodge, size = 1.6) +
+    geom_segment(data = br, aes(x = xn - 0.2, xend = xn + 0.2, y = y, yend = y),
+                 inherit.aes = FALSE, linewidth = 0.4) +
+    geom_text(data = br, aes(x = xn, y = y + 1.5, label = stars), inherit.aes = FALSE,
+              size = CFG$base_size / .pt, vjust = 0) +
+    scale_fill_manual(values = CFG$colours) +
+    scale_colour_manual(values = CFG$colours) +
+    scale_x_discrete(labels = lab) +
+    scale_y_continuous(limits = CFG$y_limits, expand = c(0, 0)) +
+    labs(x = NULL, y = "Ascorbic acid (\u00B5g/mL)") +
+    theme_pub()
+}
+
+fold_panel <- function(ex) {
+  lab <- ex
+  r <- filter(wide, experiment == ex, time != CFG$baseline) |>
+    mutate(ratio = `Reduced oxygen` / Aerobic, off = !is.finite(ratio) | ratio > max(CFG$fold_limits),
+           ratio = pmin(ratio, max(CFG$fold_limits)))
+  s <- filter(stats, experiment == ex, time != CFG$baseline)
+  ggplot(r, aes(ratio, lab)) +
+    geom_vline(xintercept = 1, linetype = "dashed", colour = "grey40", linewidth = 0.4) +
+    geom_point(data = filter(r, !off), position = position_jitter(width = 0, height = 0.12, seed = 1),
+               colour = "grey50", size = 1.2, alpha = 0.8) +
+    geom_point(data = filter(r, off), position = position_jitter(width = 0, height = 0.12, seed = 1),
+               colour = "grey50", shape = 62, size = 3) +
+    geom_segment(data = s, aes(x = ci_lower, xend = ci_upper, y = lab, yend = lab), linewidth = 0.6) +
+    geom_point(data = s, aes(fold, lab), shape = 18, size = 3.5) +
+    geom_text(data = s, aes(ci_upper, lab, label = stars), nudge_y = 0.12, hjust = 0,
+              size = CFG$base_size / .pt) +
+    scale_x_log10(limits = CFG$fold_limits, breaks = CFG$fold_breaks, labels = fold_label) +
+    annotation_logticks(sides = "b", linewidth = 0.3,
+                        short = unit(0.5, "mm"), mid = unit(1, "mm"), long = unit(1.5, "mm")) +
+    labs(x = "Fold difference in ascorbic acid\n(reduced oxygen / aerobic)", y = NULL) +
+    coord_cartesian(clip = "off") +
+    theme_pub() +
+    theme(panel.grid.major.y = element_blank(),
+          panel.grid.major.x = element_line(colour = "grey85", linewidth = 0.3),
+          axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+          axis.line.y = element_blank())
+}
+
+# Combine and save
+fig <- (bar_panel("6h") + fold_panel("6h")) / (bar_panel("24h") + fold_panel("24h")) +
+  plot_layout(widths = c(1, 1), guides = "collect") +
+  plot_annotation(tag_levels = "A") &
+  theme(legend.position = "bottom")
+save_fig(fig, CFG$fig_name, CFG$width_mm, CFG$height_mm)
+fig
+```
+
+## Session
+
+```{r session}
+writeLines(capture.output(sessionInfo()), file.path(CFG$results_dir, "sessionInfo.txt"))
+```

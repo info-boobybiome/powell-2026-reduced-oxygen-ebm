@@ -1,0 +1,136 @@
+Generated 2026-10-29
+
+R version 4.5.1 (2025-06-13)
+----------------------------
+R Core Team (2025). _R: A Language and Environment for Statistical Computing_. R Foundation for Statistical Computing,
+Vienna, Austria. <https://www.R-project.org/>.
+
+
+rmarkdown 2.30
+--------------
+Allaire J, Xie Y, Dervieux C, McPherson J, Luraschi J, Ushey K, Atkins A, Wickham H, Cheng J, Chang W, Iannone R (2025).
+_rmarkdown: Dynamic Documents for R_. R package version 2.30, <https://github.com/rstudio/rmarkdown>.
+
+Xie Y, Allaire J, Grolemund G (2018). _R Markdown: The Definitive Guide_. Chapman and Hall/CRC, Boca Raton, Florida. ISBN
+9781138359338, <https://bookdown.org/yihui/rmarkdown>.
+
+Xie Y, Dervieux C, Riederer E (2020). _R Markdown Cookbook_. Chapman and Hall/CRC, Boca Raton, Florida. ISBN 9780367563837,
+<https://bookdown.org/yihui/rmarkdown-cookbook>.
+
+
+knitr 1.51
+----------
+Xie Y (2025). _knitr: A General-Purpose Package for Dynamic Report Generation in R_. R package version 1.51,
+<https://yihui.org/knitr/>.
+
+Xie Y (2015). _Dynamic Documents with R and knitr_, 2nd edition. Chapman and Hall/CRC, Boca Raton, Florida. ISBN
+978-1498716963, <https://yihui.org/knitr/>.
+
+Xie Y (2014). “knitr: A Comprehensive Tool for Reproducible Research in R.” In Stodden V, Leisch F, Peng RD (eds.),
+_Implementing Reproducible Computational Research_. Chapman and Hall/CRC. ISBN 978-1466561595.
+
+
+readxl 1.4.5
+------------
+Wickham H, Bryan J (2025). _readxl: Read Excel Files_. doi:10.32614/CRAN.package.readxl
+<https://doi.org/10.32614/CRAN.package.readxl>, R package version 1.4.5, <https://CRAN.R-project.org/package=readxl>.
+
+
+dplyr 1.2.0
+-----------
+Wickham H, François R, Henry L, Müller K, Vaughan D (2026). _dplyr: A Grammar of Data Manipulation_.
+doi:10.32614/CRAN.package.dplyr <https://doi.org/10.32614/CRAN.package.dplyr>, R package version 1.2.0,
+<https://CRAN.R-project.org/package=dplyr>.
+
+
+tidyr 1.3.2
+-----------
+Wickham H, Vaughan D, Girlich M (2025). _tidyr: Tidy Messy Data_. doi:10.32614/CRAN.package.tidyr
+<https://doi.org/10.32614/CRAN.package.tidyr>, R package version 1.3.2, <https://CRAN.R-project.org/package=tidyr>.
+
+
+purrr 1.2.1
+-----------
+Wickham H, Henry L (2026). _purrr: Functional Programming Tools_. doi:10.32614/CRAN.package.purrr
+<https://doi.org/10.32614/CRAN.package.purrr>, R package version 1.2.1, <https://CRAN.R-project.org/package=purrr>.
+
+
+tibble 3.3.1
+------------
+Müller K, Wickham H (2026). _tibble: Simple Data Frames_. doi:10.32614/CRAN.package.tibble
+<https://doi.org/10.32614/CRAN.package.tibble>, R package version 3.3.1, <https://CRAN.R-project.org/package=tibble>.
+
+
+stringr 1.6.0
+-------------
+Wickham H (2025). _stringr: Simple, Consistent Wrappers for Common String Operations_. doi:10.32614/CRAN.package.stringr
+<https://doi.org/10.32614/CRAN.package.stringr>, R package version 1.6.0, <https://CRAN.R-project.org/package=stringr>.
+
+
+nlme 3.1.168
+------------
+Pinheiro J, Bates D, R Core Team (2025). _nlme: Linear and Nonlinear Mixed Effects Models_. doi:10.32614/CRAN.package.nlme
+<https://doi.org/10.32614/CRAN.package.nlme>, R package version 3.1-168, <https://CRAN.R-project.org/package=nlme>.
+
+Pinheiro JC, Bates DM (2000). _Mixed-Effects Models in S and S-PLUS_. Springer, New York. doi:10.1007/b98882
+<https://doi.org/10.1007/b98882>.
+
+
+lme4 1.1.38
+-----------
+Bates D, Mächler M, Bolker B, Walker S (2015). “Fitting Linear Mixed-Effects Models Using lme4.” _Journal of Statistical
+Software_, *67*(1), 1-48. doi:10.18637/jss.v067.i01 <https://doi.org/10.18637/jss.v067.i01>.
+
+
+lmerTest 3.1.3
+--------------
+Kuznetsova A, Brockhoff PB, Christensen RHB (2017). “lmerTest Package: Tests in Linear Mixed Effects Models.” _Journal of
+Statistical Software_, *82*(13), 1-26. doi:10.18637/jss.v082.i13 <https://doi.org/10.18637/jss.v082.i13>.
+
+
+ordinal 2026.7.26
+-----------------
+Christensen R (2026). _ordinal-Regression Models for Ordinal Data_. R package version 2026.7-26,
+<https://CRAN.R-project.org/package=ordinal>.
+
+
+vegan 2.7.5
+-----------
+Oksanen J, Simpson G, Blanchet F, Kindt R, Legendre P, Minchin P, O'Hara R, Solymos P, Stevens M, Szoecs E, Wagner H, Bedward
+M, Bolker B, Borcard D, Carvalho G, De Caceres M, Durand S, Evangelista H, Hannigan G, Hill M, Lahti L, Martino C, Ouellette
+M, Ribeiro Cunha E, Smith T, Stier A, Ter Braak C, Weedon J (2026). _vegan: Community Ecology Package_.
+doi:10.32614/CRAN.package.vegan <https://doi.org/10.32614/CRAN.package.vegan>, R package version 2.7-5,
+<https://CRAN.R-project.org/package=vegan>.
+
+
+ggplot2 4.0.3
+-------------
+Wickham H (2016). _ggplot2: Elegant Graphics for Data Analysis_. Springer-Verlag New York. ISBN 978-3-319-24277-4,
+<https://ggplot2.tidyverse.org>.
+
+
+patchwork 1.3.2
+---------------
+Pedersen T (2025). _patchwork: The Composer of Plots_. doi:10.32614/CRAN.package.patchwork
+<https://doi.org/10.32614/CRAN.package.patchwork>, R package version 1.3.2, <https://CRAN.R-project.org/package=patchwork>.
+
+
+scales 1.4.0
+------------
+Wickham H, Pedersen T, Seidel D (2025). _scales: Scale Functions for Visualization_. doi:10.32614/CRAN.package.scales
+<https://doi.org/10.32614/CRAN.package.scales>, R package version 1.4.0, <https://CRAN.R-project.org/package=scales>.
+
+
+ggbeeswarm 0.7.3
+----------------
+Clarke E, Sherrill-Mix S, Dawson C (2025). _ggbeeswarm: Categorical Scatter (Violin Point) Plots_.
+doi:10.32614/CRAN.package.ggbeeswarm <https://doi.org/10.32614/CRAN.package.ggbeeswarm>, R package version 0.7.3,
+<https://CRAN.R-project.org/package=ggbeeswarm>.
+
+
+ggtext 0.1.2
+------------
+Wilke C, Wiernik B (2022). _ggtext: Improved Text Rendering Support for 'ggplot2'_. doi:10.32614/CRAN.package.ggtext
+<https://doi.org/10.32614/CRAN.package.ggtext>, R package version 0.1.2, <https://CRAN.R-project.org/package=ggtext>.
+
+

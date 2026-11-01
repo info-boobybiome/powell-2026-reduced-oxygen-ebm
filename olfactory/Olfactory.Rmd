@@ -1,0 +1,480 @@
+---
+title: "Olfactory assessment of stored breast milk"
+output:
+  html_document:
+    toc: true
+    df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(tibble)
+library(ggplot2)
+library(patchwork)
+library(ggbeeswarm)
+library(ordinal)
+library(vegan)
+```
+
+## Configuration
+
+```{r config}
+CFG <- list(
+  data_file   = "olfactory_input.xlsx",
+  results_dir = "results",
+  fig_dir     = "figures",
+  fig_name    = "olfactory_sensory",
+  donor_fig_name = "olfactory_donor_ratings",
+
+  rating_sheets = c(sweetness = "sweetness", acidity = "acidity"),
+  rating_labels = c(sweetness = "Sweetness rating (1\u20135)", acidity = "Acidity rating (1\u20135)"),
+  rating_range  = 1:5,
+  condition_map = c("N/A" = "Fresh", "Anaerobic" = "Reduced oxygen", "Aerobic" = "Aerobic"),
+  conditions    = c("Fresh", "Reduced oxygen", "Aerobic"),
+  condition_day = c("Fresh" = 0, "Reduced oxygen" = 7, "Aerobic" = 7),
+  n_ratings     = c("Fresh" = 23, "Reduced oxygen" = 42, "Aerobic" = 42),
+  contrasts     = list(c("Reduced oxygen", "Fresh"),
+                       c("Reduced oxygen", "Aerobic"),
+                       c("Fresh", "Aerobic")),
+
+  categories    = c("Neutral/pleasant", "Sweet", "Fragrant", "Sour/acidic", "Off/unpleasant"),
+  excluded_term = "Excluded",
+  n_pairs_raw   = 42,
+  n_pairs       = 41,
+  n_perm        = 9999,
+
+  sample_key    = c("Sample 1" = "Reduced oxygen", "Sample 2" = "Aerobic"),
+  n_forced      = 44,
+  chance        = 0.5,
+
+  conf_level = 0.95,
+  n_boot     = 10000,
+  seed       = 20261021,
+
+  colours = c("Fresh" = "grey60", "Reduced oxygen" = "#3B75AF", "Aerobic" = "#CA6627"),
+  fig_w   = 183,
+  fig_h   = 150,
+  donor_fig_h = 75,
+  base_size = 9,
+  label_size = 7.2
+)
+
+dir.create(CFG$results_dir, showWarnings = FALSE)
+dir.create(CFG$fig_dir, showWarnings = FALSE)
+```
+
+## Helpers
+
+```{r helpers}
+p_star <- function(p) {
+  case_when(is.na(p) ~ "",
+            p < 0.0001 ~ "****", p < 0.001 ~ "***",
+            p < 0.01 ~ "**", p < 0.05 ~ "*", TRUE ~ "n.s.")
+}
+
+boot_mean_ci <- function(x, B = CFG$n_boot, level = CFG$conf_level) {
+  m <- rowMeans(matrix(sample(x, B * length(x), replace = TRUE), nrow = B))
+  a <- (1 - level) / 2
+  unname(quantile(m, c(a, 1 - a)))
+}
+
+read_sheet <- function(sheet) read_excel(CFG$data_file, sheet = sheet, na = "")
+
+theme_pub <- function(base = CFG$base_size) {
+  theme_classic(base_size = base) +
+    theme(
+      panel.grid.major = element_line(colour = "grey85", linewidth = 0.3),
+      axis.line        = element_line(colour = "black", linewidth = 0.4),
+      axis.ticks       = element_line(colour = "black", linewidth = 0.3),
+      axis.text        = element_text(colour = "black"),
+      legend.position  = "none",
+      plot.tag         = element_text(face = "bold", size = base + 6),
+      plot.margin      = margin(4, 6, 4, 4)
+    )
+}
+
+save_fig <- function(plot, name, w_mm, h_mm, out_dir = CFG$fig_dir) {
+  ggsave(file.path(out_dir, paste0(name, ".png")), plot,
+         width = w_mm, height = h_mm, units = "mm", dpi = 600, bg = "white")
+  ok <- tryCatch({
+    ggsave(file.path(out_dir, paste0(name, ".pdf")), plot,
+           width = w_mm, height = h_mm, units = "mm", device = grDevices::cairo_pdf)
+    TRUE
+  }, error = function(e) FALSE)
+  if (!ok) ggsave(file.path(out_dir, paste0(name, ".pdf")), plot,
+                  width = w_mm, height = h_mm, units = "mm")
+  invisible(plot)
+}
+
+write_res <- function(df, metric_type) {
+  write.csv(df, file.path(CFG$results_dir, paste0(metric_type, ".csv")), row.names = FALSE)
+}
+```
+
+## Sweetness and acidity ratings
+
+```{r ratings-data}
+# Read the data
+ratings <- imap_dfr(CFG$rating_sheets, ~ read_sheet(.x) %>% mutate(attribute = .y)) %>%
+  mutate(condition = unname(CFG$condition_map[condition]))
+
+# Check the data
+stopifnot(
+  "Unknown condition label" = !anyNA(ratings$condition),
+  "Ratings must be whole numbers 1-5" = all(ratings$rating %in% CFG$rating_range),
+  "Day does not match condition" = all(ratings$day == CFG$condition_day[ratings$condition]),
+  "self_assessment must be TRUE/FALSE" = is.logical(ratings$self_assessment) && !anyNA(ratings$self_assessment),
+  "Duplicate ratings" = !anyDuplicated(ratings[c("attribute", "donor", "assessor", "condition")])
+)
+n_obs <- ratings %>% count(attribute, condition)
+if (any(n_obs$n != CFG$n_ratings[n_obs$condition])) stop("Unexpected number of ratings per condition")
+day7 <- ratings %>% filter(condition != "Fresh")
+if (!all(table(paste(day7$attribute, day7$donor, day7$assessor)) == 2))
+  stop("Day-7 ratings are not complete reduced oxygen/aerobic pairs")
+
+ratings <- ratings %>%
+  mutate(condition = factor(condition, levels = CFG$conditions),
+         score     = factor(rating, levels = CFG$rating_range, ordered = TRUE),
+         pair      = paste(donor, assessor))
+```
+
+```{r ratings-descriptives}
+set.seed(CFG$seed)
+rating_desc <- ratings %>%
+  group_by(attribute, condition) %>%
+  summarise(n = n(), mean = mean(rating), sd = sd(rating),
+            ci = list(boot_mean_ci(rating)), .groups = "drop") %>%
+  mutate(ci_lower = map_dbl(ci, 1), ci_upper = map_dbl(ci, 2)) %>%
+  select(-ci)
+write_res(rating_desc, "ratings_descriptives")
+rating_desc
+```
+
+```{r ratings-stats}
+# Calculate stats
+clmm_contrasts <- function(x, random) {
+  fit <- clmm(as.formula(paste("score ~ condition +", random)), data = x, link = "logit")
+  b <- coef(fit)[paste0("condition", CFG$conditions[-1])]
+  b <- c(0, b); names(b) <- CFG$conditions
+  V <- matrix(0, 3, 3, dimnames = list(CFG$conditions, CFG$conditions))
+  V[-1, -1] <- vcov(fit)[paste0("condition", CFG$conditions[-1]), paste0("condition", CFG$conditions[-1])]
+  q <- qnorm(1 - (1 - CFG$conf_level) / 2)
+  map_dfr(CFG$contrasts, function(cc) {
+    L <- setNames(numeric(3), CFG$conditions); L[cc[1]] <- 1; L[cc[2]] <- -1
+    est <- sum(L * b); se <- sqrt(drop(t(L) %*% V %*% L))
+    tibble(group1 = cc[1], group2 = cc[2],
+           odds_ratio = exp(est), ci_lower = exp(est - q * se), ci_upper = exp(est + q * se),
+           z = est / se, p_value = 2 * pnorm(-abs(est / se)))
+  }) %>%
+    mutate(p_adj = p.adjust(p_value, "holm"), stars = p_star(p_adj))
+}
+
+models <- c(primary      = "(1 | donor) + (1 | assessor)",
+            pair_effect  = "(1 | donor) + (1 | assessor) + (1 | pair)")
+
+rating_stats <- ratings %>%
+  group_by(attribute) %>%
+  group_modify(~ clmm_contrasts(.x, models["primary"])) %>%
+  ungroup()
+write_res(rating_stats, "ratings_statistics")
+rating_stats
+```
+
+```{r ratings-sensitivity}
+rating_sens <- bind_rows(
+  ratings %>% group_by(attribute) %>%
+    group_modify(~ clmm_contrasts(.x, models["pair_effect"])) %>%
+    ungroup() %>% mutate(model = "pair random intercept"),
+  ratings %>% filter(!self_assessment) %>% group_by(attribute) %>%
+    group_modify(~ clmm_contrasts(.x, models["primary"])) %>%
+    ungroup() %>% mutate(model = "self-assessments excluded")
+) %>% relocate(model, .after = attribute)
+write_res(rating_sens, "ratings_sensitivity")
+rating_sens
+```
+
+```{r ratings-donor}
+donor_means <- ratings %>%
+  filter(condition != "Fresh") %>%
+  group_by(attribute, donor, condition) %>%
+  summarise(n_assessors = n(), mean = mean(rating), .groups = "drop") %>%
+  pivot_wider(names_from = condition, values_from = mean) %>%
+  mutate(difference = `Reduced oxygen` - Aerobic)
+write_res(donor_means, "ratings_donor_means")
+donor_means
+```
+
+## Descriptor words
+
+```{r descriptor-data}
+# Read the data
+descriptors <- read_sheet("descriptors") %>%
+  mutate(condition = unname(CFG$condition_map[condition]))
+dictionary <- read_sheet("dictionary")
+
+# Check the data
+stopifnot(
+  "Unknown condition label" = all(descriptors$condition %in% c("Reduced oxygen", "Aerobic")),
+  "Duplicate descriptor assessments" = !anyDuplicated(descriptors[c("assessor", "donor", "condition")]),
+  "Duplicate dictionary terms" = !anyDuplicated(dictionary$descriptor),
+  "Unknown dictionary category" = all(dictionary$category %in% c(CFG$categories, CFG$excluded_term))
+)
+if (n_distinct(paste(descriptors$assessor, descriptors$donor)) != CFG$n_pairs_raw ||
+    nrow(descriptors) != 2 * CFG$n_pairs_raw) stop("Descriptor data are not complete pairs")
+
+tokens <- descriptors %>%
+  separate_rows(descriptors, sep = ",") %>%
+  mutate(descriptor = trimws(descriptors)) %>%
+  filter(descriptor != "") %>%
+  left_join(dictionary, by = "descriptor")
+unknown <- unique(tokens$descriptor[is.na(tokens$category)])
+if (length(unknown)) stop("Descriptors missing from dictionary: ", paste(unknown, collapse = ", "))
+```
+
+```{r descriptor-shares}
+# Weight descriptors within each assessment
+shares <- tokens %>%
+  filter(category != CFG$excluded_term) %>%
+  group_by(assessor, donor, condition) %>%
+  mutate(weight = 1 / n()) %>%
+  group_by(assessor, donor, condition, category) %>%
+  summarise(share = sum(weight), .groups = "drop") %>%
+  pivot_wider(names_from = category, values_from = share, values_fill = 0)
+shares <- descriptors %>%
+  select(assessor, donor, condition) %>%
+  left_join(shares, by = c("assessor", "donor", "condition")) %>%
+  group_by(assessor, donor) %>%
+  filter(!any(is.na(.data[[CFG$categories[1]]]))) %>%
+  ungroup() %>%
+  mutate(across(any_of(CFG$categories), ~ replace_na(.x, 0)))
+for (k in setdiff(CFG$categories, names(shares))) shares[[k]] <- 0
+shares <- shares %>%
+  select(assessor, donor, condition, all_of(CFG$categories)) %>%
+  arrange(assessor, donor, condition)
+
+excluded_pairs <- anti_join(distinct(descriptors, assessor, donor), shares, by = c("assessor", "donor"))
+excluded_pairs
+if (n_distinct(paste(shares$assessor, shares$donor)) != CFG$n_pairs) stop("Unexpected number of descriptor pairs")
+stopifnot("Shares do not sum to 1" = all(abs(rowSums(shares[CFG$categories]) - 1) < 1e-12))
+write_res(shares, "descriptor_shares")
+```
+
+```{r descriptor-stats}
+# Calculate stats
+paired <- shares %>%
+  pivot_longer(all_of(CFG$categories), names_to = "category", values_to = "share") %>%
+  pivot_wider(names_from = condition, values_from = share) %>%
+  mutate(category = factor(category, levels = CFG$categories),
+         difference = 100 * (`Reduced oxygen` - Aerobic))
+
+set.seed(CFG$seed)
+descriptor_stats <- paired %>%
+  group_by(category) %>%
+  summarise(
+    n_pairs        = n(),
+    reduced_oxygen_pct = 100 * mean(`Reduced oxygen`),
+    aerobic_pct    = 100 * mean(Aerobic),
+    difference_pp  = mean(difference),
+    ci             = list(boot_mean_ci(difference)),
+    wt             = list(wilcox.test(`Reduced oxygen`, Aerobic, paired = TRUE,
+                                      exact = FALSE, correct = FALSE)),
+    .groups = "drop") %>%
+  mutate(ci_lower = map_dbl(ci, 1), ci_upper = map_dbl(ci, 2),
+         V        = map_dbl(wt, ~ unname(.x$statistic)),
+         p_value  = map_dbl(wt, "p.value"),
+         p_adj    = p.adjust(p_value, "BH"),
+         stars    = p_star(p_adj)) %>%
+  select(-ci, -wt) %>%
+  relocate(ci_lower, ci_upper, .after = difference_pp)
+write_res(descriptor_stats, "descriptor_statistics")
+descriptor_stats
+```
+
+```{r descriptor-multivariate}
+bray <- vegdist(as.matrix(shares[CFG$categories]), method = "bray")
+cond <- factor(shares$condition, levels = c("Reduced oxygen", "Aerobic"))
+pair_block <- factor(paste(shares$assessor, shares$donor))
+
+set.seed(CFG$seed)
+permanova <- adonis2(bray ~ cond, permutations = how(nperm = CFG$n_perm, blocks = pair_block))
+permdisp  <- anova(betadisper(bray, cond, type = "centroid"))
+
+descriptor_multi <- tibble(
+  test     = c("PERMANOVA", "PERMDISP"),
+  df1      = c(permanova$Df[1], permdisp$Df[1]),
+  df2      = c(permanova$Df[2], permdisp$Df[2]),
+  F        = c(permanova$F[1], permdisp$`F value`[1]),
+  R2       = c(permanova$R2[1], NA),
+  p_value  = c(permanova$`Pr(>F)`[1], permdisp$`Pr(>F)`[1]),
+  permutations = c(CFG$n_perm, NA)
+)
+write_res(descriptor_multi, "descriptor_multivariate")
+descriptor_multi
+```
+
+## Forced-choice questions
+
+```{r forced-choice}
+# Read the data
+forced <- read_sheet("forced_choice") %>%
+  mutate(across(c(more_off, feed_preference), ~ unname(CFG$sample_key[.x])))
+
+# Check the data
+stopifnot(
+  "Unknown sample label" = !anyNA(forced$more_off) && !anyNA(forced$feed_preference),
+  "Unexpected difference answer" = all(forced$substantially_different %in% c("Yes", "No")),
+  "Unexpected number of assessments" = nrow(forced) == CFG$n_forced
+)
+
+# Calculate stats
+forced_summary <- bind_rows(
+  forced %>% count(response = feed_preference) %>% mutate(question = "Prefer to feed"),
+  forced %>% count(response = more_off) %>% mutate(question = "Smells more off"),
+  forced %>% count(response = substantially_different) %>% mutate(question = "Smell substantially different")
+) %>%
+  mutate(n_total = nrow(forced), percent = 100 * n / n_total,
+         bt = map2(n, n_total, ~ binom.test(.x, .y, p = CFG$chance, conf.level = CFG$conf_level)),
+         ci_lower = map_dbl(bt, ~ 100 * .x$conf.int[1]),
+         ci_upper = map_dbl(bt, ~ 100 * .x$conf.int[2]),
+         p_value  = map_dbl(bt, "p.value"),
+         stars    = p_star(p_value)) %>%
+  select(question, response, n, n_total, percent, ci_lower, ci_upper, p_value, stars)
+write_res(forced_summary, "forced_choice_summary")
+forced_summary
+```
+
+## Figure
+
+```{r figure, fig.width = CFG$fig_w / 25.4, fig.height = CFG$fig_h / 25.4}
+x_labels <- c("Fresh" = "Fresh\n(day 0)", "Reduced oxygen" = "Reduced oxygen\n(day 7)",
+              "Aerobic" = "Aerobic\n(day 7)")
+
+# Panels A and B
+rating_panel <- function(attr) {
+  pts  <- ratings %>% filter(attribute == attr)
+  desc <- rating_desc %>% filter(attribute == attr)
+  br <- rating_stats %>%
+    filter(attribute == attr) %>%
+    mutate(x1 = match(group1, CFG$conditions), x2 = match(group2, CFG$conditions),
+           xmin = pmin(x1, x2), xmax = pmax(x1, x2),
+           y = max(CFG$rating_range) + 0.35 + 0.42 * (rank(xmax - xmin, ties.method = "first") - 1))
+  ggplot(pts, aes(condition, rating)) +
+    geom_beeswarm(aes(colour = condition), cex = 0.9, size = 0.9, alpha = 0.6) +
+    geom_errorbar(data = desc, aes(y = mean, ymin = ci_lower, ymax = ci_upper),
+                  width = 0.12, linewidth = 0.4) +
+    geom_point(data = desc, aes(y = mean), shape = 23, size = 2.6, fill = "grey15", colour = "grey15") +
+    geom_segment(data = br, aes(x = xmin, xend = xmax, y = y, yend = y), linewidth = 0.3, inherit.aes = FALSE) +
+    geom_segment(data = br, aes(x = xmin, xend = xmin, y = y, yend = y - 0.1), linewidth = 0.3, inherit.aes = FALSE) +
+    geom_segment(data = br, aes(x = xmax, xend = xmax, y = y, yend = y - 0.1), linewidth = 0.3, inherit.aes = FALSE) +
+    geom_text(data = br, aes(x = (xmin + xmax) / 2, y = y + 0.05, label = stars),
+              vjust = 0, size = CFG$base_size / .pt, inherit.aes = FALSE) +
+    scale_colour_manual(values = CFG$colours) +
+    scale_x_discrete(labels = x_labels) +
+    scale_y_continuous(breaks = CFG$rating_range) +
+    coord_cartesian(ylim = c(0.8, max(br$y) + 0.35), clip = "off") +
+    labs(x = NULL, y = CFG$rating_labels[[attr]]) +
+    theme_pub() +
+    theme(panel.grid.major.x = element_blank())
+}
+p_a <- rating_panel("sweetness")
+p_b <- rating_panel("acidity")
+
+# Panel C
+cat_levels <- rev(CFG$categories)
+c_stats <- descriptor_stats %>%
+  mutate(category = factor(category, levels = cat_levels),
+         direction = ifelse(difference_pp > 0, "Reduced oxygen", "Aerobic"))
+c_pts <- paired %>%
+  mutate(category = factor(category, levels = cat_levels)) %>%
+  left_join(select(c_stats, category, direction), by = "category")
+
+set.seed(CFG$seed)
+p_c <- ggplot(c_pts, aes(difference, category)) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey50", linewidth = 0.3) +
+  geom_point(aes(colour = direction), position = position_jitter(width = 0, height = 0.13),
+             size = 0.9, alpha = 0.5) +
+  geom_segment(data = c_stats, aes(x = ci_lower, xend = ci_upper, y = category, yend = category,
+                                   colour = direction), linewidth = 0.7, inherit.aes = FALSE) +
+  geom_point(data = c_stats, aes(x = difference_pp, fill = direction), shape = 23, size = 2.6,
+             colour = "grey15", stroke = 0.3) +
+  geom_text(data = c_stats, aes(x = 112, y = category, label = stars), hjust = 0,
+            size = CFG$base_size / .pt, inherit.aes = FALSE) +
+  annotate("text", x = c(-3, 3), y = length(cat_levels) + 0.6, hjust = c(1, 0),
+           label = c("\u2190 Aerobic higher", "Reduced oxygen higher \u2192"),
+           colour = CFG$colours[c("Aerobic", "Reduced oxygen")], size = CFG$label_size / .pt) +
+  scale_colour_manual(values = CFG$colours) +
+  scale_fill_manual(values = CFG$colours) +
+  scale_x_continuous(breaks = seq(-100, 100, 50), labels = function(x) sub("-", "\u2212", x)) +
+  coord_cartesian(xlim = c(-100, 100), ylim = c(0.6, length(cat_levels) + 0.7), clip = "off") +
+  labs(x = "Reduced oxygen \u2212 aerobic\n(percentage points)", y = NULL) +
+  theme_pub() +
+  theme(plot.margin = margin(4, 22, 4, 4))
+
+# Panel D
+d_dat <- forced_summary %>%
+  filter(question == "Prefer to feed") %>%
+  mutate(response = factor(response, levels = rev(CFG$conditions[-1])),
+         label = sprintf("%.1f%% (%d/%d)", percent, n, n_total),
+         right = percent < 50)
+p_d <- ggplot(d_dat, aes(percent, response)) +
+  geom_vline(xintercept = 50, linetype = "dashed", colour = "grey50", linewidth = 0.3) +
+  geom_point(aes(fill = response), shape = 23, size = 2.8, colour = "grey15", stroke = 0.3) +
+  geom_text(aes(x = percent + ifelse(right, 3, -3), label = label, hjust = ifelse(right, 0, 1)),
+            size = CFG$label_size / .pt) +
+  geom_text(data = filter(d_dat, percent > 50), aes(x = 103, label = stars), hjust = 0,
+            size = CFG$base_size / .pt) +
+  scale_fill_manual(values = CFG$colours) +
+  scale_x_continuous(breaks = seq(0, 100, 20), expand = expansion(add = c(0, 2))) +
+  coord_cartesian(xlim = c(0, 100), clip = "off") +
+  labs(x = "Preferred sample to feed (%)", y = NULL) +
+  theme_pub() +
+  theme(plot.margin = margin(4, 22, 4, 4))
+
+# Combine and save
+fig <- (free(p_a) | p_b) / (p_c | p_d) +
+  plot_layout(heights = c(1, 0.95)) +
+  plot_annotation(tag_levels = "A")
+save_fig(fig, CFG$fig_name, CFG$fig_w, CFG$fig_h)
+fig
+```
+
+## Supplementary figure
+
+```{r donor-figure, fig.width = CFG$fig_w / 25.4, fig.height = CFG$donor_fig_h / 25.4}
+day7_levels <- CFG$conditions[-1]
+set.seed(CFG$seed)
+donor_pts <- donor_means %>%
+  pivot_longer(all_of(day7_levels), names_to = "condition", values_to = "mean") %>%
+  mutate(condition = factor(condition, levels = day7_levels),
+         x = as.numeric(condition) + runif(n(), -0.07, 0.07))
+
+donor_panel <- function(attr) {
+  ggplot(filter(donor_pts, attribute == attr), aes(x, mean)) +
+    geom_line(aes(group = donor), colour = "grey70", linewidth = 0.4) +
+    geom_point(aes(colour = condition), size = 1.6) +
+    scale_colour_manual(values = CFG$colours) +
+    scale_x_continuous(breaks = seq_along(day7_levels), labels = x_labels[day7_levels],
+                       expand = expansion(add = 0.3)) +
+    scale_y_continuous(breaks = CFG$rating_range) +
+    coord_cartesian(ylim = range(CFG$rating_range)) +
+    labs(x = NULL, y = CFG$rating_labels[[attr]]) +
+    theme_pub() +
+    theme(panel.grid.major.x = element_blank())
+}
+
+# Combine and save
+donor_fig <- (donor_panel("sweetness") | donor_panel("acidity")) +
+  plot_annotation(tag_levels = "A")
+save_fig(donor_fig, CFG$donor_fig_name, CFG$fig_w, CFG$donor_fig_h)
+donor_fig
+```
+
+## Session
+
+```{r session}
+writeLines(capture.output(sessionInfo()), file.path(CFG$results_dir, "sessionInfo.txt"))
+```

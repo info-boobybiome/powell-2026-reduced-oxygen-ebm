@@ -1,0 +1,359 @@
+---
+title: "time-kill curves (CFU/mL)"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, message = FALSE,
+  fig.align = "center", dpi = 150
+)
+```
+
+# Setup
+
+```{r libs}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(tibble)
+library(ggplot2)
+library(patchwork)
+library(scales)
+library(glue)
+
+stopifnot(packageVersion("patchwork") >= "1.2.0")
+```
+
+```{r config}
+CFG <- list(
+  data_path = "TimeKillCurves.xlsx",
+  fig_dir   = "figures",
+  res_dir   = "results",
+  metric    = "CFU",
+
+  strains = c(
+    "B.infantis" = "B. infantis",
+    "B.longum"   = "B. longum",
+    "B.bifidum"  = "B. bifidum",
+    "B.breve"    = "B. breve"
+  ),
+
+  sheet_condition = c(Anaerobic = "Reduced oxygen", Aerobic = "Aerobic"),
+  cond_levels     = c("Reduced oxygen", "Aerobic"),
+  expected_times  = list("Reduced oxygen" = c(10, 240),
+                         "Aerobic"    = c(10, 30, 60, 120, 240)),
+  expected_reps   = 3,
+  baseline_min    = 10,
+  endpoint_min    = 240,
+  conf_level      = 0.95,
+
+  strain_cols = c(
+    "B. infantis" = "#3B75AF",
+    "B. longum"   = "#519E3E",
+    "B. bifidum"  = "#8D69B8",
+    "B. breve"    = "#C53A32"
+  ),
+  cond_cols = c("Reduced oxygen" = "#3B75AF", "Aerobic" = "#CA6627"),
+  cond_lty  = c("Reduced oxygen" = "dashed",  "Aerobic" = "solid"),
+  ribbon    = "SEM",
+
+  time_breaks = c(10, 60, 120, 240),
+  fold_breaks = 10^(0:5),
+  fold_limits = c(0.7, 3e5),
+  bracket_dx  = 7,
+
+  fig_w_mm  = 183,
+  fig_h_mm  = 150,
+  base_size = 9
+)
+
+dir.create(CFG$fig_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(CFG$res_dir, showWarnings = FALSE, recursive = TRUE)
+STRAIN_LEVELS <- unname(CFG$strains)
+```
+
+```{r helpers}
+# Read one strain sheet
+read_strain_sheet <- function(path, sheet) {
+  txt <- suppressMessages(read_excel(path, sheet = sheet, col_names = FALSE,
+                                     col_types = "text"))
+  num <- suppressWarnings(suppressMessages(
+    read_excel(path, sheet = sheet, col_names = FALSE, col_types = "numeric")))
+
+  cond_row <- which(apply(txt, 1, function(r) any(r %in% "Anaerobic")))
+  stopifnot("exactly one condition header row" = length(cond_row) == 1)
+
+  cond <- unlist(txt[cond_row, ], use.names = FALSE)
+  cond[1] <- NA
+  for (j in seq_along(cond)[-1]) if (is.na(cond[j])) cond[j] <- cond[j - 1]
+  cfu_cols <- which(cond %in% names(CFG$sheet_condition))
+
+  time_rows <- which(!is.na(num[[1]]) & seq_len(nrow(num)) > cond_row)
+  stopifnot("no data rows found" = length(time_rows) > 0)
+
+  m <- as.matrix(num[time_rows, cfu_cols])
+  tibble(
+    sheet      = sheet,
+    time_min   = rep(num[[1]][time_rows], times = length(cfu_cols)),
+    condition  = rep(unname(CFG$sheet_condition[cond[cfu_cols]]),
+                     each = length(time_rows)),
+    replicate  = rep(ave(seq_along(cfu_cols), cond[cfu_cols], FUN = seq_along),
+                     each = length(time_rows)),
+    CFU_per_mL = as.vector(m)
+  ) %>%
+    filter(!is.na(CFU_per_mL))
+}
+
+# Significance stars
+p_star <- function(p) {
+  dplyr::case_when(is.na(p) ~ "",
+                   p < 0.0001 ~ "****", p < 0.001 ~ "***",
+                   p < 0.01 ~ "**", p < 0.05 ~ "*", TRUE ~ "n.s.")
+}
+
+fold_lab <- function(x) paste0(label_comma()(x), "\u00D7")
+
+# Plot theme
+theme_pub <- function(base = CFG$base_size) {
+  theme_classic(base_size = base) +
+    theme(
+      panel.grid.major = element_line(colour = "grey85", linewidth = 0.3),
+      axis.line        = element_line(colour = "black", linewidth = 0.4),
+      axis.ticks       = element_line(colour = "black", linewidth = 0.3),
+      axis.text        = element_text(colour = "black"),
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "italic", size = base + 1),
+      legend.key.width = unit(10, "mm"),
+      plot.tag         = element_text(face = "bold", size = base + 6),
+      plot.margin      = margin(4, 6, 4, 4)
+    )
+}
+
+# Save PNG and PDF
+save_fig <- function(plot, name, w_mm, h_mm, out_dir = CFG$fig_dir) {
+  ggsave(file.path(out_dir, paste0(name, ".png")), plot,
+         width = w_mm, height = h_mm, units = "mm", dpi = 600, bg = "white")
+  ok <- tryCatch({
+    ggsave(file.path(out_dir, paste0(name, ".pdf")), plot,
+           width = w_mm, height = h_mm, units = "mm",
+           device = grDevices::cairo_pdf)
+    TRUE
+  }, error = function(e) FALSE)
+  if (!ok) ggsave(file.path(out_dir, paste0(name, ".pdf")), plot,
+                  width = w_mm, height = h_mm, units = "mm")
+  invisible(plot)
+}
+```
+
+# Data
+
+```{r read}
+# Read the data
+stopifnot(file.exists(CFG$data_path))
+missing_sheets <- setdiff(names(CFG$strains), excel_sheets(CFG$data_path))
+if (length(missing_sheets))
+  stop("Sheets not found in workbook: ", paste(missing_sheets, collapse = ", "))
+
+cfu <- map_dfr(names(CFG$strains), ~ read_strain_sheet(CFG$data_path, .x)) %>%
+  mutate(strain    = factor(CFG$strains[sheet], levels = STRAIN_LEVELS),
+         condition = factor(condition, levels = CFG$cond_levels),
+         log10_CFU = log10(CFU_per_mL))
+
+# Check the data
+for (s in STRAIN_LEVELS) for (k in CFG$cond_levels) {
+  d <- filter(cfu, strain == s, condition == k)
+  got_t <- sort(unique(d$time_min))
+  if (!isTRUE(all.equal(got_t, CFG$expected_times[[k]])))
+    stop(s, " / ", k, ": unexpected timepoints ", paste(got_t, collapse = ","))
+  if (any(count(d, time_min)$n != CFG$expected_reps))
+    stop(s, " / ", k, ": replicate count is not ", CFG$expected_reps)
+}
+stopifnot(
+  "non-positive CFU" = all(cfu$CFU_per_mL > 0),
+  "duplicated cells" = !anyDuplicated(cfu[c("strain", "time_min", "condition", "replicate")])
+)
+
+cfu %>% count(strain, condition, name = "n_obs")
+```
+
+# Baseline-normalised trajectories
+
+```{r descriptives}
+# Normalise to 10-min baseline
+norm <- cfu %>%
+  left_join(cfu %>% filter(time_min == CFG$baseline_min) %>%
+              select(strain, condition, replicate, baseline_CFU = CFU_per_mL),
+            by = c("strain", "condition", "replicate")) %>%
+  mutate(log10_change = log10(CFU_per_mL / baseline_CFU))
+stopifnot(!anyNA(norm$baseline_CFU))
+
+write.csv(norm %>% select(strain, condition, time_min, replicate,
+                          CFU_per_mL, log10_change),
+          file.path(CFG$res_dir, glue("{CFG$metric}_baseline_normalised.csv")),
+          row.names = FALSE)
+
+# Summarise
+desc <- norm %>%
+  group_by(strain, condition, time_min) %>%
+  summarise(n    = n(),
+            mean = mean(log10_change),
+            sd   = sd(log10_change),
+            sem  = sd(log10_change) / sqrt(n()),
+            .groups = "drop") %>%
+  mutate(err = if (CFG$ribbon == "SEM") sem else sd)
+
+write.csv(select(desc, -err),
+          file.path(CFG$res_dir, glue("{CFG$metric}_descriptives.csv")),
+          row.names = FALSE)
+desc
+```
+
+# 240-min endpoint tests
+
+```{r endpoint}
+# Calculate stats
+end <- filter(cfu, time_min == CFG$endpoint_min)
+
+primary <- end %>%
+  group_by(strain) %>%
+  group_modify(~ {
+    a  <- .x$log10_CFU[.x$condition == "Reduced oxygen"]
+    b  <- .x$log10_CFU[.x$condition == "Aerobic"]
+    tt <- t.test(a, b, paired = FALSE, var.equal = FALSE,
+                 alternative = "two.sided", conf.level = CFG$conf_level)
+    tibble(
+      test      = "Welch t-test on log10(CFU/mL)",
+      n_reduced_oxygen = length(a),
+      n_aerobic    = length(b),
+      fold      = 10^(mean(a) - mean(b)),
+      ci_lower  = 10^tt$conf.int[1],
+      ci_upper  = 10^tt$conf.int[2],
+      t         = unname(tt$statistic),
+      df        = unname(tt$parameter),
+      p_value   = tt$p.value
+    )
+  }) %>%
+  ungroup() %>%
+  mutate(stars = p_star(p_value))
+
+write.csv(primary,
+          file.path(CFG$res_dir, glue("{CFG$metric}_statistics.csv")),
+          row.names = FALSE)
+primary
+```
+
+# Sensitivity
+
+```{r sensitivity}
+# Paired test
+pairs <- end %>%
+  select(strain, condition, replicate, log10_CFU) %>%
+  pivot_wider(names_from = condition, values_from = log10_CFU) %>%
+  mutate(log10_ratio = `Reduced oxygen` - Aerobic)
+
+paired <- pairs %>%
+  group_by(strain) %>%
+  group_modify(~ {
+    tt <- t.test(.x$log10_ratio, mu = 0, conf.level = CFG$conf_level)
+    tibble(test     = "Paired t-test on log10(reduced oxygen/aerobic)",
+           n_pairs  = nrow(.x),
+           fold     = 10^mean(.x$log10_ratio),
+           ci_lower = 10^tt$conf.int[1],
+           ci_upper = 10^tt$conf.int[2],
+           t        = unname(tt$statistic),
+           df       = unname(tt$parameter),
+           p_value  = tt$p.value)
+  }) %>%
+  ungroup() %>%
+  mutate(stars = p_star(p_value))
+
+write.csv(paired,
+          file.path(CFG$res_dir, glue("{CFG$metric}_sensitivity.csv")),
+          row.names = FALSE)
+paired
+```
+
+# Figure
+
+```{r figure, fig.width = CFG$fig_w_mm / 25.4, fig.height = CFG$fig_h_mm / 25.4}
+# Panel A
+a_dat <- primary %>% mutate(strain = factor(strain, levels = rev(STRAIN_LEVELS)))
+
+pA <- ggplot(a_dat, aes(y = strain, colour = strain)) +
+  geom_vline(xintercept = 1, linetype = "dashed", colour = "grey45", linewidth = 0.4) +
+  geom_segment(aes(x = ci_lower, xend = ci_upper, yend = strain), linewidth = 0.9) +
+  geom_point(aes(x = fold, fill = strain), shape = 23, size = 2.6,
+             colour = "white", stroke = 0.3) +
+  geom_text(aes(x = ci_upper * 1.25, label = stars), hjust = 0, colour = "black",
+            size = CFG$base_size / .pt, vjust = 0.3) +
+  scale_x_log10(breaks = CFG$fold_breaks, labels = fold_lab,
+                limits = CFG$fold_limits, expand = expansion(0)) +
+  annotation_logticks(sides = "b", outside = TRUE, linewidth = 0.25,
+                      short = unit(0.6, "mm"), mid = unit(0.9, "mm"),
+                      long = unit(0, "mm")) +
+  coord_cartesian(clip = "off") +
+  scale_colour_manual(values = CFG$strain_cols, guide = "none") +
+  scale_fill_manual(values = CFG$strain_cols, guide = "none") +
+  labs(x = glue("Fold difference in viable CFU/mL at {CFG$endpoint_min} min (reduced oxygen/aerobic)"),
+       y = NULL) +
+  theme_pub() +
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.major.y = element_line(colour = "grey85", linewidth = 0.3),
+        axis.text.y = element_text(face = "italic", size = CFG$base_size + 1))
+
+# Panel B
+brk <- desc %>%
+  filter(time_min == CFG$endpoint_min) %>%
+  group_by(strain) %>%
+  summarise(ymin = min(mean), ymax = max(mean), .groups = "drop") %>%
+  left_join(select(primary, strain, stars), by = "strain") %>%
+  mutate(x = CFG$endpoint_min - CFG$bracket_dx, y = (ymin + ymax) / 2)
+
+pB <- ggplot(desc, aes(time_min, mean, colour = condition, fill = condition,
+                       linetype = condition, group = condition)) +
+  geom_ribbon(aes(ymin = mean - err, ymax = mean + err), alpha = 0.18,
+              colour = NA, show.legend = FALSE) +
+  geom_line(linewidth = 0.7) +
+  geom_point(size = 1.3) +
+  geom_segment(data = brk, aes(x = x, xend = x, y = ymin, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.35) +
+  geom_segment(data = brk, aes(x = x, xend = x + 3, y = ymin, yend = ymin),
+               inherit.aes = FALSE, linewidth = 0.35) +
+  geom_segment(data = brk, aes(x = x, xend = x + 3, y = ymax, yend = ymax),
+               inherit.aes = FALSE, linewidth = 0.35) +
+  geom_text(data = brk, aes(x = x - 5, y = y, label = stars), inherit.aes = FALSE,
+            hjust = 1, size = CFG$base_size / .pt) +
+  annotate("segment", x = -Inf, xend = -Inf, y = -Inf, yend = Inf,
+           colour = "black", linewidth = 0.4) +
+  facet_wrap(~ strain, nrow = 1, scales = "free_x") +
+  scale_x_continuous(breaks = CFG$time_breaks,
+                     expand = expansion(mult = c(0.04, 0.04))) +
+  scale_colour_manual(values = CFG$cond_cols, name = NULL) +
+  scale_fill_manual(values = CFG$cond_cols, name = NULL) +
+  scale_linetype_manual(values = CFG$cond_lty, name = NULL) +
+  labs(x = "Time (min)",
+       y = expression(log[10]*" change from 10-min baseline")) +
+  theme_pub() +
+  theme(legend.position = "top",
+        panel.spacing.x = unit(5, "mm"))
+
+# Combine and save
+fig <- (pA / free(pB)) +
+  plot_layout(heights = c(0.8, 1.2)) +
+  plot_annotation(tag_levels = "A")
+
+save_fig(fig, "killcurves", CFG$fig_w_mm, CFG$fig_h_mm)
+fig
+```
+
+# Session
+
+```{r session}
+capture.output(sessionInfo(), file = file.path(CFG$res_dir, "sessionInfo.txt"))
+```

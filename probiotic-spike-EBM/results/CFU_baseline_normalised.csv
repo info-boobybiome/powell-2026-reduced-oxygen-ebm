@@ -1,0 +1,97 @@
+"strain","condition","day","replicate","CFU_per_mL","log10_change"
+"B. longum subsp. infantis","Reduced oxygen",0,1,60000,0
+"B. longum subsp. infantis","Reduced oxygen",1,1,27000,-0.346787486224657
+"B. longum subsp. infantis","Reduced oxygen",3,1,19000,-0.499397649430815
+"B. longum subsp. infantis","Reduced oxygen",7,1,22000,-0.435728569561437
+"B. longum subsp. infantis","Reduced oxygen",0,2,40000,0
+"B. longum subsp. infantis","Reduced oxygen",1,2,26000,-0.187086643357144
+"B. longum subsp. infantis","Reduced oxygen",3,2,24000,-0.221848749616356
+"B. longum subsp. infantis","Reduced oxygen",7,2,25000,-0.204119982655925
+"B. longum subsp. infantis","Reduced oxygen",0,3,40000,0
+"B. longum subsp. infantis","Reduced oxygen",1,3,28000,-0.154901959985743
+"B. longum subsp. infantis","Reduced oxygen",3,3,22000,-0.259637310505756
+"B. longum subsp. infantis","Reduced oxygen",7,3,19000,-0.323306390375134
+"B. longum subsp. infantis","Aerobic",0,1,50000,0
+"B. longum subsp. infantis","Aerobic",1,1,23000,-0.337242168318426
+"B. longum subsp. infantis","Aerobic",3,1,2400,-1.31875876262441
+"B. longum subsp. infantis","Aerobic",7,1,600,-1.92081875395238
+"B. longum subsp. infantis","Aerobic",0,2,40000,0
+"B. longum subsp. infantis","Aerobic",1,2,24000,-0.221848749616356
+"B. longum subsp. infantis","Aerobic",3,2,2200,-1.25963731050576
+"B. longum subsp. infantis","Aerobic",7,2,800,-1.69897000433602
+"B. longum subsp. infantis","Aerobic",0,3,50000,0
+"B. longum subsp. infantis","Aerobic",1,3,25000,-0.301029995663981
+"B. longum subsp. infantis","Aerobic",3,3,1800,-1.44369749923271
+"B. longum subsp. infantis","Aerobic",7,3,500,-2
+"B. longum subsp. longum","Reduced oxygen",0,1,150000,0
+"B. longum subsp. longum","Reduced oxygen",1,1,110000,-0.134698573897456
+"B. longum subsp. longum","Reduced oxygen",3,1,120000,-0.0969100130080562
+"B. longum subsp. longum","Reduced oxygen",7,1,120000,-0.0969100130080562
+"B. longum subsp. longum","Reduced oxygen",0,2,170000,0
+"B. longum subsp. longum","Reduced oxygen",1,2,120000,-0.151267675330649
+"B. longum subsp. longum","Reduced oxygen",3,2,1e+05,-0.230448921378274
+"B. longum subsp. longum","Reduced oxygen",7,2,1e+05,-0.230448921378274
+"B. longum subsp. longum","Reduced oxygen",0,3,150000,0
+"B. longum subsp. longum","Reduced oxygen",1,3,1e+05,-0.176091259055681
+"B. longum subsp. longum","Reduced oxygen",3,3,1e+05,-0.176091259055681
+"B. longum subsp. longum","Reduced oxygen",7,3,120000,-0.0969100130080562
+"B. longum subsp. longum","Aerobic",0,1,160000,0
+"B. longum subsp. longum","Aerobic",1,1,110000,-0.1627272974977
+"B. longum subsp. longum","Aerobic",3,1,9000,-1.2498774732166
+"B. longum subsp. longum","Aerobic",7,1,4600,-1.54136215097435
+"B. longum subsp. longum","Aerobic",0,2,140000,0
+"B. longum subsp. longum","Aerobic",1,2,130000,-0.0321846833714012
+"B. longum subsp. longum","Aerobic",3,2,17000,-0.915679114299964
+"B. longum subsp. longum","Aerobic",7,2,4300,-1.51265958009865
+"B. longum subsp. longum","Aerobic",0,3,160000,0
+"B. longum subsp. longum","Aerobic",1,3,130000,-0.0901766303490881
+"B. longum subsp. longum","Aerobic",3,3,16000,-1
+"B. longum subsp. longum","Aerobic",7,3,3900,-1.61305537562943
+"B. bifidum","Reduced oxygen",0,1,4.4e+07,0
+"B. bifidum","Reduced oxygen",1,1,4.6e+07,0.0193051551953864
+"B. bifidum","Reduced oxygen",3,1,35300000,-0.0956779710983655
+"B. bifidum","Reduced oxygen",7,1,2.8e+07,-0.196294645143968
+"B. bifidum","Reduced oxygen",0,2,4.6e+07,0
+"B. bifidum","Reduced oxygen",1,2,3.6e+07,-0.106455330914287
+"B. bifidum","Reduced oxygen",3,2,36700000,-0.0980917674294846
+"B. bifidum","Reduced oxygen",7,2,3.1e+07,-0.171396137847301
+"B. bifidum","Reduced oxygen",0,3,4.1e+07,0
+"B. bifidum","Reduced oxygen",1,3,3.8e+07,-0.0330002601029253
+"B. bifidum","Reduced oxygen",3,3,24700000,-0.22008690346007
+"B. bifidum","Reduced oxygen",7,3,2.1e+07,-0.290564561985816
+"B. bifidum","Aerobic",0,1,4e+07,0
+"B. bifidum","Aerobic",1,1,3.8e+07,-0.0222763947111524
+"B. bifidum","Aerobic",3,1,2900000,-1.13966199342901
+"B. bifidum","Aerobic",7,1,220000,-2.25963731050576
+"B. bifidum","Aerobic",0,2,3.8e+07,0
+"B. bifidum","Aerobic",1,2,3.6e+07,-0.0234810958495233
+"B. bifidum","Aerobic",3,2,3300000,-1.06126965673892
+"B. bifidum","Aerobic",7,2,210000,-2.25756430188289
+"B. bifidum","Aerobic",0,3,4.7e+07,0
+"B. bifidum","Aerobic",1,3,3.2e+07,-0.166947879615811
+"B. bifidum","Aerobic",3,3,2900000,-1.20969986003676
+"B. bifidum","Aerobic",7,3,140000,-2.52596982225748
+"B. breve","Reduced oxygen",0,1,3e+08,0
+"B. breve","Reduced oxygen",1,1,3.6e+08,0.0791812460476251
+"B. breve","Reduced oxygen",3,1,2.3e+08,-0.11539341870207
+"B. breve","Reduced oxygen",7,1,2.1e+08,-0.154901959985743
+"B. breve","Reduced oxygen",0,2,3e+08,0
+"B. breve","Reduced oxygen",1,2,3.1e+08,0.0142404391146105
+"B. breve","Reduced oxygen",3,2,2.4e+08,-0.0969100130080562
+"B. breve","Reduced oxygen",7,2,1.8e+08,-0.221848749616356
+"B. breve","Reduced oxygen",0,3,3e+08,0
+"B. breve","Reduced oxygen",1,3,2.2e+08,-0.134698573897456
+"B. breve","Reduced oxygen",3,3,2e+08,-0.176091259055681
+"B. breve","Reduced oxygen",7,3,1.5e+08,-0.301029995663981
+"B. breve","Aerobic",0,1,2.8e+08,0
+"B. breve","Aerobic",1,1,1.9e+08,-0.168404430389391
+"B. breve","Aerobic",3,1,3.3e+07,-0.928644091464332
+"B. breve","Aerobic",7,1,1800000,-2.19188552623891
+"B. breve","Aerobic",0,2,2.8e+08,0
+"B. breve","Aerobic",1,2,2.6e+08,-0.0321846833714012
+"B. breve","Aerobic",3,2,3.4e+07,-0.915679114299964
+"B. breve","Aerobic",7,2,2e+06,-2.14612803567824
+"B. breve","Aerobic",0,3,2.8e+08,0
+"B. breve","Aerobic",1,3,1.5e+08,-0.271066772286538
+"B. breve","Aerobic",3,3,2.7e+07,-1.01579426718323
+"B. breve","Aerobic",7,3,1600000,-2.24303804868629

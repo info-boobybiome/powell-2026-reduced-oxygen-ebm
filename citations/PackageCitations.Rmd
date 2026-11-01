@@ -1,0 +1,55 @@
+---
+title: "R package citations"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+```{r config}
+CFG <- list(
+  out_dir = "results",
+  pkgs = c("base", "rmarkdown", "knitr",
+           "readxl", "dplyr", "tidyr", "purrr", "tibble", "stringr",
+           "nlme", "lme4", "lmerTest", "ordinal", "vegan",
+           "ggplot2", "patchwork", "scales", "ggbeeswarm", "ggtext")
+)
+dir.create(CFG$out_dir, showWarnings = FALSE)
+```
+
+```{r check}
+missing <- setdiff(CFG$pkgs, rownames(installed.packages()))
+if (length(missing)) stop("Not installed: ", paste(missing, collapse = ", "))
+```
+
+```{r citations}
+pkg_version <- function(p) {
+  if (p == "base") R.version.string else paste(p, packageVersion(p))
+}
+
+# Plain text
+txt <- unlist(lapply(CFG$pkgs, function(p) {
+  head <- pkg_version(p)
+  c(head, strrep("-", nchar(head)),
+    paste0(format(citation(p), style = "text"), "\n"), "")
+}))
+writeLines(c(paste("Generated", Sys.Date()), "", txt),
+           file.path(CFG$out_dir, "citations.txt"))
+
+# BibTeX
+bib <- unlist(lapply(CFG$pkgs, function(p) {
+  b <- as.character(toBibtex(citation(p)))
+  starts <- grep("^@", b)
+  key <- if (length(starts) > 1) paste0(p, seq_along(starts)) else p
+  b[starts] <- paste0(sub("\\{.*$", "", b[starts]), "{", key, ",")
+  c(b, "")
+}))
+writeLines(bib, file.path(CFG$out_dir, "citations.bib"))
+```
+
+```{r show, comment = ""}
+cat(readLines(file.path(CFG$out_dir, "citations.txt")), sep = "\n")
+```

@@ -1,0 +1,85 @@
+"strain","condition","time_min","replicate","CFU_per_mL","log10_change"
+"B. infantis","Aerobic",10,1,2.9e+07,0
+"B. infantis","Aerobic",30,1,26500000,-0.0391521239621482
+"B. infantis","Aerobic",60,1,26500000,-0.0391521239621482
+"B. infantis","Aerobic",120,1,275000,-2.02306530406869
+"B. infantis","Aerobic",240,1,15000,-3.28630673884327
+"B. infantis","Aerobic",10,2,2.5e+07,0
+"B. infantis","Aerobic",30,2,2.7e+07,0.0334237554869497
+"B. infantis","Aerobic",60,2,2.4e+07,-0.0177287669604316
+"B. infantis","Aerobic",120,2,215000,-2.06550154875643
+"B. infantis","Aerobic",240,2,20000,-3.09691001300806
+"B. infantis","Aerobic",10,3,2.6e+07,0
+"B. infantis","Aerobic",30,3,22500000,-0.0627908298594555
+"B. infantis","Aerobic",60,3,2.4e+07,-0.0347621062592119
+"B. infantis","Aerobic",120,3,220000,-2.07255066714861
+"B. infantis","Aerobic",240,3,10000,-3.41497334797082
+"B. infantis","Reduced oxygen",10,1,2.9e+07,0
+"B. infantis","Reduced oxygen",240,1,20500000,-0.150644136843202
+"B. infantis","Reduced oxygen",10,2,2.5e+07,0
+"B. infantis","Reduced oxygen",240,2,23500000,-0.0268721464003014
+"B. infantis","Reduced oxygen",10,3,2.6e+07,0
+"B. infantis","Reduced oxygen",240,3,21500000,-0.0825348880552127
+"B. longum","Aerobic",10,1,1.25e+08,0
+"B. longum","Aerobic",30,1,1.05e+08,-0.0757207139381184
+"B. longum","Aerobic",60,1,1e+08,-0.0969100130080564
+"B. longum","Aerobic",120,1,250000,-2.69897000433602
+"B. longum","Aerobic",240,1,5000,-4.39794000867204
+"B. longum","Aerobic",10,2,1.2e+08,0
+"B. longum","Aerobic",30,2,1.15e+08,-0.0184834056940131
+"B. longum","Aerobic",60,2,1.2e+08,0
+"B. longum","Aerobic",120,2,350000,-2.53511320169735
+"B. longum","Aerobic",240,2,5000,-4.38021124171161
+"B. longum","Aerobic",10,3,1.2e+08,0
+"B. longum","Aerobic",30,3,1.1e+08,-0.0377885608893998
+"B. longum","Aerobic",60,3,1.15e+08,-0.0184834056940131
+"B. longum","Aerobic",120,3,250000,-2.68124123737559
+"B. longum","Aerobic",240,3,5000,-4.38021124171161
+"B. longum","Reduced oxygen",10,1,1.25e+08,0
+"B. longum","Reduced oxygen",240,1,1.3e+08,0.0170333392987804
+"B. longum","Reduced oxygen",10,2,1.2e+08,0
+"B. longum","Reduced oxygen",240,2,1.35e+08,0.0511525224473813
+"B. longum","Reduced oxygen",10,3,1.2e+08,0
+"B. longum","Reduced oxygen",240,3,1.25e+08,0.0177287669604316
+"B. bifidum","Aerobic",10,1,5.53e+08,0
+"B. bifidum","Aerobic",30,1,4.93e+08,-0.0498782120274683
+"B. bifidum","Aerobic",60,1,48300000,-1.05877800055319
+"B. bifidum","Aerobic",120,1,207000,-3.42675478584778
+"B. bifidum","Aerobic",240,1,26700,-4.31621386994012
+"B. bifidum","Aerobic",10,2,4.53e+08,0
+"B. bifidum","Aerobic",30,2,5.57e+08,0.089756993160897
+"B. bifidum","Aerobic",60,2,52700000,-0.934287586800285
+"B. bifidum","Aerobic",120,2,223000,-3.30779333896467
+"B. bifidum","Aerobic",240,2,15300,-4.47140677119523
+"B. bifidum","Aerobic",10,3,4.8e+08,0
+"B. bifidum","Aerobic",30,3,3.8e+08,-0.101457640758777
+"B. bifidum","Aerobic",60,3,5e+07,-0.982271233039568
+"B. bifidum","Aerobic",120,3,293000,-3.21437361702148
+"B. bifidum","Aerobic",240,3,24700,-4.28854428411592
+"B. bifidum","Reduced oxygen",10,1,5.2e+08,0
+"B. bifidum","Reduced oxygen",240,1,5.03e+08,-0.0144353585788718
+"B. bifidum","Reduced oxygen",10,2,5.4e+08,0
+"B. bifidum","Reduced oxygen",240,2,5.67e+08,0.0211892990699381
+"B. bifidum","Reduced oxygen",10,3,4.63e+08,0
+"B. bifidum","Reduced oxygen",240,3,5.03e+08,0.0359869940379743
+"B. breve","Aerobic",10,1,7.3e+10,0
+"B. breve","Aerobic",30,1,6.45e+10,-0.0537631454851881
+"B. breve","Aerobic",60,1,7.1e+10,-0.0120645114013806
+"B. breve","Aerobic",120,1,7.3e+08,-2
+"B. breve","Aerobic",240,1,2.5e+07,-3.46538285144842
+"B. breve","Aerobic",10,2,8e+10,0
+"B. breve","Aerobic",30,2,6.95e+10,-0.0611051824018297
+"B. breve","Aerobic",60,2,6.75e+10,-0.0737862141609187
+"B. breve","Aerobic",120,2,7.75e+08,-2.01378828448563
+"B. breve","Aerobic",240,2,2.5e+07,-3.50514997831991
+"B. breve","Aerobic",10,3,7.25e+10,0
+"B. breve","Aerobic",30,3,6.8e+10,-0.0278290938647574
+"B. breve","Aerobic",60,3,7.2e+10,-0.00300551013972524
+"B. breve","Aerobic",120,3,7.5e+08,-1.98527674317929
+"B. breve","Aerobic",240,3,3.5e+07,-3.31626996222072
+"B. breve","Reduced oxygen",10,1,7.3e+10,0
+"B. breve","Reduced oxygen",240,1,9.55e+10,0.11668051146329
+"B. breve","Reduced oxygen",10,2,8e+10,0
+"B. breve","Reduced oxygen",240,2,9.5e+10,0.0746336182969042
+"B. breve","Reduced oxygen",10,3,7.25e+10,0
+"B. breve","Reduced oxygen",240,3,8.85e+10,0.0866052641268317

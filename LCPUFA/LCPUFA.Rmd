@@ -1,0 +1,588 @@
+---
+title: "LC-PUFA / palmitic — bar presentation, baseline and day 7"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, message = FALSE,
+  fig.align = "center", dpi = 150
+)
+```
+
+# Setup
+
+```{r libs}
+# Packages
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(tibble)
+library(ggplot2)
+library(patchwork)
+library(scales)
+library(grid)
+```
+
+```{r config}
+# Paths, labels, palette and the primary test switch
+DATA_PATH <- "LCPUFA.xlsx"
+FIG_DIR   <- "figures"
+RES_DIR   <- "results"
+dir.create(FIG_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(RES_DIR, showWarnings = FALSE, recursive = TRUE)
+
+# One of "t_log", "wilcoxon".
+PRIMARY_TEST <- "t_log"
+
+PAL_COND <- c("Reduced oxygen" = "#0072B2", "Aerobic" = "#D55E00")
+
+TP_LEVELS   <- c("T0", "Day 7")
+COND_LEVELS <- c("Reduced oxygen", "Aerobic")
+
+# The workbook still stores "Low oxygen"; map it to the display label on read.
+COND_MAP <- c("Low oxygen" = "Reduced oxygen", "Aerobic" = "Aerobic")
+
+Y_LAB    <- "LC-PUFA / palmitic  [(EPA + DHA) / C16:0]"
+Y_BREAKS <- seq(0, 0.05, by = 0.01)
+Y_MAX    <- max(Y_BREAKS)
+
+# Brackets are anchored to the axis, not to each panel's data, so every panel
+# places them identically and nothing is clipped. Tier 1 holds the two
+# within-timepoint comparisons, tiers 2 and 3 the two within-condition ones.
+ANN_TIERS <- tibble::tibble(
+  tier = 1:3,
+  y1   = Y_MAX * c(1.03, 1.15, 1.27),
+  y2   = Y_MAX * c(1.08, 1.20, 1.32)
+)
+Y_LIMIT <- Y_MAX * 1.44
+
+FC_BREAKS <- c(0.5, 1, 2)
+FC_MINOR  <- FC_BREAKS[-length(FC_BREAKS)] * sqrt(2)
+
+# The supplementary plots replicates on a log2 axis, so it needs its own breaks
+SUPP_BREAKS <- c(0.005, 0.01, 0.02, 0.04, 0.08)
+SUPP_MINOR  <- SUPP_BREAKS[-length(SUPP_BREAKS)] * sqrt(2)
+
+# Bar dodge and deterministic donor offsets, so connectors line up exactly
+DODGE    <- 0.42
+BAR_W    <- 0.36
+DONOR_SP <- 0.075
+
+# All contrasts: numerator timepoint/condition over denominator
+CONTRASTS <- list(
+  list(key = "day7_lo_vs_aer", label = "Day 7: reduced oxygen / aerobic",
+       short = "Day 7",
+       n_tp = "Day 7", n_cond = "Reduced oxygen",
+       d_tp = "Day 7", d_cond = "Aerobic"),
+  list(key = "t0_lo_vs_aer",   label = "T0: reduced oxygen / aerobic",
+       short = "T0",
+       n_tp = "T0",    n_cond = "Reduced oxygen",
+       d_tp = "T0",    d_cond = "Aerobic"),
+  list(key = "lo_day7_vs_t0",  label = "Reduced oxygen: day 7 / T0",
+       short = "Reduced oxygen",
+       n_tp = "Day 7", n_cond = "Reduced oxygen",
+       d_tp = "T0",    d_cond = "Reduced oxygen"),
+  list(key = "aer_day7_vs_t0", label = "Aerobic: day 7 / T0",
+       short = "Aerobic",
+       n_tp = "Day 7", n_cond = "Aerobic",
+       d_tp = "T0",    d_cond = "Aerobic")
+)
+
+# Strips in panels B and D show only the reduced oxygen vs aerobic contrasts
+STRIP_KEYS <- c("day7_lo_vs_aer", "t0_lo_vs_aer")
+```
+
+# Data
+
+```{r read}
+# Read the data
+reps <- readxl::read_excel(DATA_PATH, sheet = "raw_data") %>%
+  dplyr::mutate(
+    timepoint = factor(timepoint, levels = TP_LEVELS),
+    condition = factor(unname(COND_MAP[condition]), levels = COND_LEVELS),
+    ratio     = (epa + dha) / palmitic
+  )
+
+stopifnot(
+  nrow(reps) == 73,
+  all(is.finite(reps$ratio)),
+  all(!is.na(reps$condition)),
+  all(!is.na(reps$timepoint)),
+  dplyr::n_distinct(reps$donor) == 6
+)
+
+DONORS <- sort(unique(reps$donor))
+```
+
+```{r filter}
+# Apply the 2-closest-replicate filter
+keep_two_closest <- function(x) {
+  n <- length(x)
+  if (n <= 2L) return(rep(TRUE, n))
+  ord  <- order(x)
+  gaps <- diff(x[ord])
+  sg   <- sort(gaps)
+  if (sg[2] >= 2 * sg[1]) {
+    i   <- which.min(gaps)
+    out <- rep(FALSE, n)
+    out[ord[c(i, i + 1L)]] <- TRUE
+    out
+  } else {
+    rep(TRUE, n)
+  }
+}
+
+reps <- reps %>%
+  dplyr::group_by(donor, timepoint, condition) %>%
+  dplyr::mutate(kept = keep_two_closest(ratio)) %>%
+  dplyr::ungroup()
+```
+
+# Statistics
+
+```{r stats-fn}
+# Donor means, geometric group summaries, and paired tests on the log ratio
+donor_means <- function(d) {
+  d %>%
+    dplyr::group_by(donor, timepoint, condition) %>%
+    dplyr::summarise(value = base::mean(ratio), .groups = "drop")
+}
+
+# Bar height is the geometric mean; whiskers are SEM on the log scale.
+group_geomean <- function(dm) {
+  dm %>%
+    dplyr::group_by(timepoint, condition) %>%
+    dplyr::summarise(mlog = base::mean(log(value)),
+                     se   = stats::sd(log(value)) / sqrt(dplyr::n()),
+                     .groups = "drop") %>%
+    dplyr::mutate(gm = exp(mlog), lo = exp(mlog - se), hi = exp(mlog + se))
+}
+
+contrast_stats <- function(dm, spec) {
+  num <- dm %>%
+    dplyr::filter(timepoint == spec$n_tp, condition == spec$n_cond) %>%
+    dplyr::select(donor, num = value)
+  den <- dm %>%
+    dplyr::filter(timepoint == spec$d_tp, condition == spec$d_cond) %>%
+    dplyr::select(donor, den = value)
+  z  <- dplyr::inner_join(num, den, by = "donor") %>% dplyr::arrange(donor)
+  a  <- z$num
+  b  <- z$den
+  lr <- log(a / b)
+  tt <- stats::t.test(lr)
+  wx <- stats::wilcox.test(a, b, paired = TRUE, exact = TRUE)
+  out <- list(
+    key = spec$key, label = spec$label, short = spec$short,
+    donors = z$donor, fold_donor = a / b, n_donor = length(lr),
+    fold = exp(unname(tt$estimate)),
+    ci_lo = exp(tt$conf.int[1]), ci_hi = exp(tt$conf.int[2]),
+    concordant = sum(a > b),
+    t_stat = unname(tt$statistic), df = unname(tt$parameter),
+    W = unname(wx$statistic),
+    p_t_log = tt$p.value, p_wilcox = wx$p.value
+  )
+  out$p_primary <- switch(PRIMARY_TEST, t_log = out$p_t_log,
+                          wilcoxon = out$p_wilcox)
+  out
+}
+
+p_star <- function(p) {
+  if (is.na(p)) ""
+  else if (p < 0.001) "***"
+  else if (p < 0.01)  "**"
+  else if (p < 0.05)  "*"
+  else "n.s."
+}
+```
+
+```{r build}
+# Build the unfiltered and filtered analyses
+ANALYSES <- list(
+  unfiltered = list(id = "unfiltered", data = reps),
+  filtered   = list(id = "filtered",   data = dplyr::filter(reps, kept))
+)
+
+ANALYSES <- purrr::map(ANALYSES, function(a) {
+  a$dm <- donor_means(a$data)
+  a$gg <- group_geomean(a$dm)
+  a$st <- purrr::set_names(
+    purrr::map(CONTRASTS, function(s) contrast_stats(a$dm, s)),
+    purrr::map_chr(CONTRASTS, "key")
+  )
+  a
+})
+
+purrr::map_dfr(ANALYSES, function(a) {
+  dplyr::mutate(a$gg, analysis = a$id, .before = 1) %>%
+    dplyr::select(analysis, timepoint, condition, gm, lo, hi)
+})
+```
+
+# Themes and helpers
+
+```{r themes}
+# Plot theme and version-agnostic log2 axes
+log2_scale <- function(axis = c("x", "y"), breaks, minor, labeller,
+                       expand = ggplot2::expansion(mult = c(0.10, 0.22))) {
+  axis <- match.arg(axis)
+  f    <- if (axis == "x") ggplot2::scale_x_continuous else
+                           ggplot2::scale_y_continuous
+  args <- list(breaks = breaks, minor_breaks = minor, labels = labeller,
+               expand = expand)
+  key  <- if ("transform" %in% names(formals(f))) "transform" else "trans"
+  args[[key]] <- "log2"
+  do.call(f, args)
+}
+
+fc_label <- function(x) {
+  paste0(format(x, trim = TRUE, drop0trailing = TRUE), "\u00d7")
+}
+
+theme_pub <- function(base = 8) {
+  ggplot2::theme_minimal(base_size = base, base_family = "sans") +
+    ggplot2::theme(
+      panel.grid.minor   = ggplot2::element_blank(),
+      panel.grid.major.x = ggplot2::element_blank(),
+      panel.grid.major.y = ggplot2::element_line(linewidth = 0.25,
+                                                 colour = "grey88"),
+      axis.line.x        = ggplot2::element_line(linewidth = 0.35,
+                                                 colour = "grey25"),
+      axis.ticks.x       = ggplot2::element_line(linewidth = 0.35,
+                                                 colour = "grey25"),
+      axis.ticks.length  = grid::unit(2, "pt"),
+      axis.text          = ggplot2::element_text(colour = "grey15"),
+      axis.title         = ggplot2::element_text(size = base - 0.5,
+                                                 colour = "grey15"),
+      plot.tag           = ggplot2::element_text(size = base + 2,
+                                                 face = "bold",
+                                                 colour = "grey10"),
+      legend.position    = "none",
+      plot.margin        = ggplot2::margin(4, 6, 4, 4)
+    )
+}
+```
+
+# Panels
+
+```{r panel-bars}
+# Grouped bar panel: geometric mean, donor points, paired connectors
+panel_bars <- function(a) {
+  cond_off  <- function(cond) dplyr::if_else(cond == COND_LEVELS[1],
+                                             -DODGE / 2, DODGE / 2)
+  donor_off <- function(donor) {
+    (match(donor, DONORS) - (length(DONORS) + 1) / 2) *
+      (2 * DONOR_SP / (length(DONORS) - 1))
+  }
+
+  gg <- a$gg %>%
+    dplyr::mutate(x = as.numeric(timepoint) + cond_off(condition))
+
+  pts <- a$dm %>%
+    dplyr::mutate(x = as.numeric(timepoint) + cond_off(condition) +
+                      donor_off(donor))
+
+  links <- pts %>%
+    dplyr::select(donor, timepoint, condition, x, value) %>%
+    tidyr::pivot_wider(names_from = condition,
+                       values_from = c(x, value)) %>%
+    stats::setNames(c("donor", "timepoint", "x_lo", "x_ae", "y_lo", "y_ae"))
+
+  # Tier 1: within timepoint. Tiers 2-3: within condition, across timepoints.
+  ann <- tibble::tibble(
+    key = c("t0_lo_vs_aer", "day7_lo_vs_aer",
+            "lo_day7_vs_t0", "aer_day7_vs_t0"),
+    x_left  = c(1 - DODGE / 2, 2 - DODGE / 2,
+                1 - DODGE / 2, 1 + DODGE / 2),
+    x_right = c(1 + DODGE / 2, 2 + DODGE / 2,
+                2 - DODGE / 2, 2 + DODGE / 2),
+    tier    = c(1, 1, 2, 3)
+  ) %>%
+    dplyr::left_join(ANN_TIERS, by = "tier") %>%
+    dplyr::mutate(
+      star = purrr::map_chr(key, function(k) p_star(a$st[[k]]$p_primary)),
+      x    = (x_left + x_right) / 2
+    )
+
+  ggplot2::ggplot() +
+    ggplot2::geom_col(
+      data = gg,
+      mapping = ggplot2::aes(x = x, y = gm, fill = condition,
+                             colour = condition),
+      width = BAR_W, alpha = 0.15, linewidth = 0.5) +
+    ggplot2::geom_segment(
+      data = links,
+      mapping = ggplot2::aes(x = x_lo, xend = x_ae, y = y_lo, yend = y_ae),
+      linewidth = 0.25, colour = "grey70") +
+    ggplot2::geom_point(
+      data = pts,
+      mapping = ggplot2::aes(x = x, y = value, colour = condition),
+      size = 1.3, alpha = 0.9) +
+    ggplot2::geom_errorbar(
+      data = gg,
+      mapping = ggplot2::aes(x = x, ymin = lo, ymax = hi, colour = condition),
+      width = 0.10, linewidth = 0.5) +
+    ggplot2::geom_point(
+      data = gg,
+      mapping = ggplot2::aes(x = x, y = gm, colour = condition),
+      size = 2.0) +
+    ggplot2::geom_segment(
+      data = ann,
+      mapping = ggplot2::aes(x = x_left, xend = x_right, y = y2, yend = y2),
+      linewidth = 0.4, colour = "grey20") +
+    ggplot2::geom_segment(
+      data = ann,
+      mapping = ggplot2::aes(x = x_left, xend = x_left, y = y1, yend = y2),
+      linewidth = 0.4, colour = "grey20") +
+    ggplot2::geom_segment(
+      data = ann,
+      mapping = ggplot2::aes(x = x_right, xend = x_right, y = y1, yend = y2),
+      linewidth = 0.4, colour = "grey20") +
+    ggplot2::geom_text(
+      data = ann,
+      mapping = ggplot2::aes(x = x, y = y2 * 1.005, label = star),
+      size = 2.2, colour = "grey20", vjust = 0) +
+    ggplot2::scale_fill_manual(values = PAL_COND, drop = FALSE) +
+    ggplot2::scale_colour_manual(values = PAL_COND, drop = FALSE) +
+    ggplot2::scale_x_continuous(
+      breaks = seq_along(TP_LEVELS), labels = TP_LEVELS,
+      expand = ggplot2::expansion(add = 0.45)) +
+    ggplot2::scale_y_continuous(
+      breaks = Y_BREAKS, labels = scales::label_number(accuracy = 0.01),
+      expand = ggplot2::expansion(mult = c(0, 0))) +
+    ggplot2::coord_cartesian(ylim = c(0, Y_LIMIT), clip = "off") +
+    ggplot2::labs(x = NULL, y = Y_LAB, fill = NULL, colour = NULL) +
+    theme_pub()
+}
+```
+
+```{r panel-strip}
+# Fold-difference strip: per-donor dots, pooled geometric mean with 95% CI
+panel_strip <- function(a) {
+  st   <- a$st[STRIP_KEYS]
+  lvls <- purrr::map_chr(st, "short")
+
+  per_donor <- purrr::map_dfr(st, function(s) {
+    tibble::tibble(label = s$short, donor = s$donors, fold = s$fold_donor)
+  }) %>%
+    dplyr::mutate(
+      label = factor(label, levels = rev(lvls)),
+      y = as.numeric(label) +
+          (match(donor, DONORS) - (length(DONORS) + 1) / 2) * 0.055
+    )
+
+  pooled <- purrr::map_dfr(st, function(s) {
+    tibble::tibble(label = s$short, fold = s$fold,
+                   lo = s$ci_lo, hi = s$ci_hi,
+                   star = p_star(s$p_primary))
+  }) %>%
+    dplyr::mutate(label = factor(label, levels = rev(lvls)),
+                  y = as.numeric(label) - 0.26)
+
+  ggplot2::ggplot() +
+    ggplot2::geom_vline(xintercept = 1, linewidth = 0.4, linetype = "22",
+                        colour = "grey35") +
+    ggplot2::geom_point(
+      data = per_donor, mapping = ggplot2::aes(x = fold, y = y),
+      size = 1.3, colour = "grey55") +
+    ggplot2::geom_segment(
+      data = pooled,
+      mapping = ggplot2::aes(x = lo, xend = hi, y = y, yend = y),
+      linewidth = 0.6, colour = "grey10") +
+    ggplot2::geom_point(
+      data = pooled, mapping = ggplot2::aes(x = fold, y = y),
+      shape = 23, size = 2.4, fill = "grey10", colour = "grey10") +
+    ggplot2::geom_text(
+      data = pooled, mapping = ggplot2::aes(x = hi, y = y, label = star),
+      hjust = -0.55, vjust = 0.35, size = 2.4, colour = "grey20") +
+    ggplot2::scale_y_continuous(
+      breaks = seq_along(lvls), labels = rev(lvls),
+      expand = ggplot2::expansion(add = 0.55)) +
+    log2_scale("x", FC_BREAKS, FC_MINOR, fc_label) +
+    ggplot2::labs(
+      x = "Fold difference in LC-PUFA / palmitic\n(reduced oxygen / aerobic)",
+      y = NULL) +
+    theme_pub() +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      panel.grid.major.x = ggplot2::element_line(linewidth = 0.25,
+                                                 colour = "grey90"),
+      panel.grid.minor.x = ggplot2::element_line(linewidth = 0.2,
+                                                 colour = "grey94"),
+      axis.line.x        = ggplot2::element_blank(),
+      axis.ticks.x       = ggplot2::element_blank())
+}
+```
+
+```{r save-fn}
+# Save a figure as PNG and PDF
+save_fig <- function(plot, name, w_mm, h_mm) {
+  ggplot2::ggsave(file.path(FIG_DIR, paste0(name, ".png")), plot,
+                  width = w_mm, height = h_mm, units = "mm", dpi = 600)
+  ok <- tryCatch({
+    ggplot2::ggsave(file.path(FIG_DIR, paste0(name, ".pdf")), plot,
+                    width = w_mm, height = h_mm, units = "mm",
+                    device = grDevices::cairo_pdf)
+    TRUE
+  }, error = function(e) FALSE)
+  if (!ok) {
+    ggplot2::ggsave(file.path(FIG_DIR, paste0(name, ".pdf")), plot,
+                    width = w_mm, height = h_mm, units = "mm")
+  }
+  invisible(plot)
+}
+```
+
+# Main figure
+
+```{r main-figure, fig.width = 6.7, fig.height = 5.3}
+# Plot the main figure
+main_fig <- patchwork::wrap_plots(
+  list(
+    panel_bars(ANALYSES$unfiltered),
+    panel_strip(ANALYSES$unfiltered),
+    panel_bars(ANALYSES$filtered),
+    panel_strip(ANALYSES$filtered)
+  ),
+  ncol = 2, widths = c(1, 0.95)
+) +
+  patchwork::plot_annotation(
+    tag_levels = "A",
+    title = NULL, subtitle = NULL, caption = NULL,
+    theme = theme_pub()
+  ) +
+  patchwork::plot_layout(guides = "collect") &
+  ggplot2::theme(
+    legend.position  = "bottom",
+    legend.key.size  = grid::unit(8, "pt"),
+    legend.text      = ggplot2::element_text(size = 7),
+    legend.margin    = ggplot2::margin(0, 0, 0, 0)
+  )
+
+save_fig(main_fig, "LCPUFA_palmitic_bars_baseline_day7", 170, 135)
+main_fig
+```
+
+# Supplementary figure
+
+```{r supp-figure, fig.width = 6.7, fig.height = 4.2}
+# Plot the supplementary figure
+supp_d <- reps %>%
+  dplyr::mutate(
+    status    = dplyr::if_else(kept, "Retained",
+                               "Removed by 2-closest filter"),
+    cond_code = factor(dplyr::if_else(condition == COND_LEVELS[1],
+                                      "RO", "Aer"),
+                       levels = c("RO", "Aer"))
+  )
+
+supp_means <- supp_d %>%
+  dplyr::group_by(donor, timepoint, cond_code) %>%
+  dplyr::summarise(m = base::mean(ratio), .groups = "drop")
+
+supp <- ggplot2::ggplot(supp_d, ggplot2::aes(x = cond_code, y = ratio)) +
+  ggplot2::geom_crossbar(
+    data = supp_means,
+    mapping = ggplot2::aes(x = cond_code, y = m, ymin = m, ymax = m),
+    inherit.aes = FALSE, width = 0.55, linewidth = 0.35, colour = "grey50") +
+  ggplot2::geom_point(
+    ggplot2::aes(shape = status, colour = status), size = 1.4, stroke = 0.6,
+    position = ggplot2::position_jitter(width = 0.11, height = 0, seed = 1)) +
+  ggplot2::scale_shape_manual(
+    values = c("Retained" = 16, "Removed by 2-closest filter" = 1)) +
+  ggplot2::scale_colour_manual(
+    values = c("Retained" = "#0072B2",
+               "Removed by 2-closest filter" = "#D55E00")) +
+  ggplot2::facet_grid(timepoint ~ donor) +
+  log2_scale("y", SUPP_BREAKS, SUPP_MINOR,
+             scales::label_number(accuracy = 0.001),
+             expand = ggplot2::expansion(mult = c(0.08, 0.10))) +
+  ggplot2::labs(x = "RO = reduced oxygen   \u00b7   Aer = aerobic",
+                y = Y_LAB, shape = NULL, colour = NULL) +
+  theme_pub() +
+  ggplot2::theme(
+    panel.grid.minor.y = ggplot2::element_line(linewidth = 0.2,
+                                               colour = "grey94"),
+    strip.text      = ggplot2::element_text(size = 7, face = "bold",
+                                            colour = "grey10"),
+    legend.position = "top",
+    legend.key.size = grid::unit(7, "pt"),
+    legend.text     = ggplot2::element_text(size = 6.5),
+    panel.spacing   = grid::unit(3, "pt"))
+
+save_fig(supp, "replicate_filtering_reduced_oxygen", 170, 105)
+supp
+```
+
+# Results tables
+
+```{r results}
+# Write the statistics and descriptives tables
+stats_tbl <- purrr::map_dfr(ANALYSES, function(a) {
+  purrr::map_dfr(a$st, function(s) {
+    tibble::tibble(
+      analysis      = a$id,
+      contrast      = s$label,
+      metric        = "(EPA+DHA)/Palmitic",
+      transform     = "natural log",
+      n_biological  = s$n_donor,
+      n_technical   = nrow(a$data),
+      estimate      = s$fold,
+      estimate_type = "geometric mean ratio",
+      ci_lower      = s$ci_lo,
+      ci_upper      = s$ci_hi,
+      ci_level      = 0.95,
+      concordance   = sprintf("%d/%d", s$concordant, s$n_donor),
+      t_statistic   = s$t_stat,
+      df            = s$df,
+      p_t_log       = s$p_t_log,
+      W_statistic   = s$W,
+      p_wilcoxon    = s$p_wilcox,
+      primary_test  = PRIMARY_TEST
+    )
+  })
+})
+
+# Group-level geometric means as plotted in the bar panels
+groups_tbl <- purrr::map_dfr(ANALYSES, function(a) {
+  a$gg %>%
+    dplyr::mutate(analysis = a$id, .before = 1) %>%
+    dplyr::select(analysis, timepoint, condition,
+                  geometric_mean = gm, sem_lower = lo, sem_upper = hi)
+})
+
+desc_tbl <- reps %>%
+  dplyr::group_by(donor, timepoint, condition) %>%
+  dplyr::summarise(
+    n_total    = dplyr::n(),
+    n_retained = sum(kept),
+    mean       = base::mean(ratio),
+    sd         = stats::sd(ratio),
+    cv_pct     = 100 * stats::sd(ratio) / base::mean(ratio),
+    median     = stats::median(ratio),
+    min        = base::min(ratio),
+    max        = base::max(ratio),
+    .groups = "drop")
+
+utils::write.csv(stats_tbl, file.path(RES_DIR, "statistics.csv"),
+                 row.names = FALSE)
+utils::write.csv(groups_tbl, file.path(RES_DIR, "group_means.csv"),
+                 row.names = FALSE)
+utils::write.csv(desc_tbl, file.path(RES_DIR, "descriptives.csv"),
+                 row.names = FALSE)
+
+stats_tbl
+```
+
+# Session information
+
+```{r session}
+utils::capture.output(utils::sessionInfo(),
+                      file = file.path(RES_DIR, "sessionInfo.txt"))
+sessionInfo()
+```

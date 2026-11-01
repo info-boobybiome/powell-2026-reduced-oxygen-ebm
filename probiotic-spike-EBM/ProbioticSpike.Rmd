@@ -1,0 +1,351 @@
+---
+title: "Bifidobacterium survival in stored breast milk"
+output:
+  html_document:
+    toc: true
+    df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(tibble)
+library(ggplot2)
+library(patchwork)
+library(scales)
+library(nlme)
+```
+
+## Configuration
+
+```{r config}
+CFG <- list(
+  data_path   = "ProbioticSpike.xlsx",
+  data_range  = "A2:G6",
+  results_dir = "results",
+  fig_dir     = "figures",
+  strains = tribble(
+    ~sheet,       ~strain,                     ~label,
+    "B.infantis", "B. longum subsp. infantis", "B. infantis",
+    "B.longum",   "B. longum subsp. longum",   "B. longum",
+    "B.bifidum",  "B. bifidum",                "B. bifidum",
+    "B.breve",    "B. breve",                  "B. breve"
+  ),
+  condition_map = c(Anaerobic = "Reduced oxygen", Anareobic = "Reduced oxygen", Aerobic = "Aerobic"),
+  conditions    = c("Reduced oxygen", "Aerobic"),
+  days          = c(0, 1, 3, 7),
+  n_rep         = 3,
+  baseline_day  = 0,
+  endpoint_day  = 7,
+  df_contrast   = 4,
+  conf_level    = 0.95,
+  error_band    = "sem",
+  strain_cols   = c("B. infantis" = "#3B75AF", "B. longum" = "#519E3E",
+                    "B. bifidum"  = "#8D69B8", "B. breve"  = "#C53A32"),
+  cond_cols     = c("Reduced oxygen" = "#3B75AF", "Aerobic" = "#CA6627"),
+  cond_lty      = c("Reduced oxygen" = "dashed", "Aerobic" = "solid"),
+  fold_breaks   = c(1, 10, 100, 1000),
+  fold_limits   = c(0.8, 500),
+  change_breaks = seq(-2.5, 0, 0.5),
+  fig_w_mm      = 183,
+  fig_h_mm      = 150,
+  base_size     = 9
+)
+
+dir.create(CFG$results_dir, showWarnings = FALSE)
+dir.create(CFG$fig_dir, showWarnings = FALSE)
+```
+
+## Helpers
+
+```{r helpers}
+read_strain <- function(sheet) {
+  m <- read_excel(CFG$data_path, sheet = sheet, range = CFG$data_range,
+                  col_names = FALSE, .name_repair = "minimal")
+  raw_labels <- trimws(unlist(m[1, c(2, 5)]))
+  if (!all(raw_labels %in% names(CFG$condition_map)))
+    stop("Unrecognised condition label in sheet ", sheet, ": ",
+         paste(raw_labels, collapse = ", "))
+  vals <- m[-1, ]
+  tibble(day       = rep(as.numeric(unlist(vals[, 1])), times = 6),
+         col       = rep(2:7, each = nrow(vals)),
+         CFU_per_mL = as.numeric(unlist(vals[, 2:7]))) |>
+    mutate(condition = unname(CFG$condition_map[raw_labels[ifelse(col <= 4, 1, 2)]]),
+           replicate = (col - 2) %% 3 + 1,
+           sheet     = sheet) |>
+    select(-col)
+}
+
+holm_sidak <- function(p) {
+  n <- length(p); o <- order(p)
+  adj <- cummax(1 - (1 - p[o])^(n - seq_len(n) + 1))
+  out <- numeric(n); out[o] <- pmin(1, adj); out
+}
+
+p_star <- function(p) {
+  case_when(is.na(p) ~ "",
+            p < 0.0001 ~ "****", p < 0.001 ~ "***",
+            p < 0.01 ~ "**", p < 0.05 ~ "*", TRUE ~ "n.s.")
+}
+
+fold_label <- function(x) paste0(comma(x, accuracy = 1), "\u00d7")
+
+theme_pub <- function(base = CFG$base_size) {
+  theme_classic(base_size = base) +
+    theme(
+      panel.grid.major = element_line(colour = "grey85", linewidth = 0.3),
+      axis.line        = element_line(colour = "black", linewidth = 0.4),
+      axis.ticks       = element_line(colour = "black", linewidth = 0.3),
+      axis.text        = element_text(colour = "black"),
+      strip.background = element_blank(),
+      strip.text       = element_text(face = "italic", size = base + 1),
+      legend.key.width = unit(10, "mm"),
+      plot.tag         = element_text(face = "bold", size = base + 6),
+      plot.margin      = margin(4, 6, 4, 4)
+    )
+}
+
+save_fig <- function(plot, name, w_mm, h_mm, out_dir = CFG$fig_dir) {
+  ggsave(file.path(out_dir, paste0(name, ".png")), plot,
+         width = w_mm, height = h_mm, units = "mm", dpi = 600, bg = "white")
+  ok <- tryCatch({
+    ggsave(file.path(out_dir, paste0(name, ".pdf")), plot,
+           width = w_mm, height = h_mm, units = "mm",
+           device = grDevices::cairo_pdf)
+    TRUE
+  }, error = function(e) FALSE)
+  if (!ok) ggsave(file.path(out_dir, paste0(name, ".pdf")), plot,
+                  width = w_mm, height = h_mm, units = "mm")
+  invisible(plot)
+}
+
+write_res <- function(df, metric_type) {
+  write.csv(df, file.path(CFG$results_dir, paste0(metric_type, ".csv")),
+            row.names = FALSE)
+}
+```
+
+## Data
+
+```{r data}
+# Read the data
+missing_sheets <- setdiff(CFG$strains$sheet, excel_sheets(CFG$data_path))
+if (length(missing_sheets)) stop("Missing sheets: ", paste(missing_sheets, collapse = ", "))
+
+cfu <- map_dfr(CFG$strains$sheet, read_strain) |>
+  left_join(CFG$strains, by = "sheet") |>
+  mutate(strain    = factor(strain, levels = CFG$strains$strain),
+         label     = factor(label, levels = CFG$strains$label),
+         condition = factor(condition, levels = CFG$conditions),
+         log10_cfu = log10(CFU_per_mL)) |>
+  select(strain, label, condition, day, replicate, CFU_per_mL, log10_cfu)
+
+# Check the data
+stopifnot(
+  "Unexpected days"               = all(sort(unique(cfu$day)) == CFG$days),
+  "Missing or non-positive counts" = all(is.finite(cfu$CFU_per_mL) & cfu$CFU_per_mL > 0),
+  "Duplicate cells"               = !anyDuplicated(cfu[c("strain", "condition", "day", "replicate")]),
+  "Each sheet needs both conditions" = all(table(cfu$strain, cfu$condition) > 0),
+  "Unexpected replicate count"    = all(count(cfu, strain, condition, day)$n == CFG$n_rep)
+)
+
+cfu
+```
+
+## Baseline-normalised values and descriptives
+
+```{r descriptives}
+# Normalise to each replicate's own day-0 count
+normalised <- cfu |>
+  group_by(strain, condition, replicate) |>
+  mutate(log10_change = log10_cfu - log10_cfu[day == CFG$baseline_day]) |>
+  ungroup()
+
+descriptives <- normalised |>
+  group_by(strain, label, condition, day) |>
+  summarise(n                 = n(),
+            mean_log10_cfu    = mean(log10_cfu),
+            sd_log10_cfu      = sd(log10_cfu),
+            mean_log10_change = mean(log10_change),
+            sd_log10_change   = sd(log10_change),
+            sem_log10_change  = sd_log10_change / sqrt(n),
+            .groups = "drop")
+
+write_res(select(normalised, strain, condition, day, replicate, CFU_per_mL, log10_change),
+          "CFU_baseline_normalised")
+write_res(select(descriptives, -label), "CFU_descriptives")
+descriptives
+```
+
+## Primary statistics
+
+```{r stats}
+# Calculate stats
+fit_strain <- function(x) {
+  x <- mutate(x, cell = factor(paste(condition, day, sep = "_")),
+                 unit = factor(paste(condition, replicate, sep = "_")))
+  fit <- lme(log10_cfu ~ 0 + cell, random = ~ 1 | unit, data = x, method = "REML")
+  list(b = fixef(fit), V = vcov(fit))
+}
+
+contrast_row <- function(fit, weights, df = CFG$df_contrast) {
+  L <- setNames(numeric(length(fit$b)), names(fit$b))
+  L[paste0("cell", names(weights))] <- weights
+  est <- sum(L * fit$b)
+  se  <- sqrt(drop(t(L) %*% fit$V %*% L))
+  q   <- qt(1 - (1 - CFG$conf_level) / 2, df)
+  tibble(fold = 10^est, ci_lower = 10^(est - q * se), ci_upper = 10^(est + q * se),
+         t = est / se, df = df, p_value = 2 * pt(-abs(est / se), df))
+}
+
+cell <- function(cond, day) paste(cond, day, sep = "_")
+
+fits <- cfu |> group_by(strain) |> group_map(~ fit_strain(.x), .keep = TRUE) |>
+  setNames(levels(cfu$strain))
+
+stats <- map_dfr(levels(cfu$strain), function(s) {
+  map_dfr(CFG$days, function(d) {
+    contrast_row(fits[[s]], setNames(c(1, -1), cell(CFG$conditions, d))) |>
+      mutate(strain = s, day = d, .before = 1)
+  }) |>
+    mutate(p_adj = holm_sidak(p_value))
+}) |>
+  left_join(count(cfu, strain, condition, day) |>
+              pivot_wider(names_from = condition, values_from = n) |>
+              rename(n_reduced_oxygen = `Reduced oxygen`, n_aerobic = Aerobic) |>
+              mutate(strain = as.character(strain)),
+            by = c("strain", "day")) |>
+  mutate(stars = p_star(p_adj)) |>
+  select(strain, day, n_reduced_oxygen, n_aerobic, fold, ci_lower, ci_upper, t, df,
+         p_value, p_adj, stars)
+
+write_res(stats, "CFU_statistics")
+stats
+```
+
+## Sensitivity
+
+```{r sensitivity}
+# Welch t-test at each day
+welch <- cfu |>
+  group_by(strain, day) |>
+  group_modify(function(x, key) {
+    a  <- x$log10_cfu[x$condition == "Reduced oxygen"]
+    b  <- x$log10_cfu[x$condition == "Aerobic"]
+    if (sd(a) == 0 && sd(b) == 0)
+      return(tibble(n_reduced_oxygen = length(a), n_aerobic = length(b),
+                    fold = 10^(mean(a) - mean(b)), ci_lower = NA_real_, ci_upper = NA_real_,
+                    t = NA_real_, df = NA_real_, p_value = NA_real_))
+    tt <- t.test(a, b, var.equal = FALSE, conf.level = CFG$conf_level)
+    tibble(n_reduced_oxygen = length(a), n_aerobic = length(b),
+           fold = 10^(mean(a) - mean(b)),
+           ci_lower = 10^tt$conf.int[1], ci_upper = 10^tt$conf.int[2],
+           t = unname(tt$statistic), df = unname(tt$parameter), p_value = tt$p.value)
+  }) |>
+  group_by(strain) |>
+  mutate(p_adj = replace(p_value, !is.na(p_value), holm_sidak(na.omit(p_value))),
+         test = "Welch t-test") |>
+  ungroup() |>
+  mutate(strain = as.character(strain))
+
+# Mixed model on change from day 0
+change <- map_dfr(levels(cfu$strain), function(s) {
+  map_dfr(setdiff(CFG$days, CFG$baseline_day), function(d) {
+    w <- setNames(c(1, -1, -1, 1),
+                  c(cell("Reduced oxygen", d), cell("Reduced oxygen", CFG$baseline_day),
+                    cell("Aerobic", d),    cell("Aerobic", CFG$baseline_day)))
+    contrast_row(fits[[s]], w) |> mutate(strain = s, day = d, .before = 1)
+  }) |>
+    mutate(p_adj = holm_sidak(p_value))
+}) |>
+  mutate(n_reduced_oxygen = CFG$n_rep, n_aerobic = CFG$n_rep,
+         test = "Mixed model, change from day 0")
+
+sensitivity <- bind_rows(welch, change) |>
+  mutate(stars = p_star(p_adj)) |>
+  select(strain, test, day, n_reduced_oxygen, n_aerobic, fold, ci_lower, ci_upper,
+         t, df, p_value, p_adj, stars)
+
+write_res(sensitivity, "CFU_sensitivity")
+sensitivity
+```
+
+## Figure
+
+```{r figure, fig.width = CFG$fig_w_mm / 25.4, fig.height = CFG$fig_h_mm / 25.4}
+# Panel A
+d7 <- stats |>
+  filter(day == CFG$endpoint_day) |>
+  left_join(select(CFG$strains, strain, label), by = "strain") |>
+  mutate(label = factor(label, levels = rev(CFG$strains$label)))
+
+panel_a <- ggplot(d7, aes(y = label, colour = label)) +
+  geom_vline(xintercept = 1, linetype = "dashed", colour = "grey50", linewidth = 0.4) +
+  geom_segment(aes(x = ci_lower, xend = ci_upper, yend = label), linewidth = 0.7) +
+  geom_point(aes(x = fold), shape = 18, size = 3) +
+  geom_text(aes(x = ci_upper * 1.2, label = stars), hjust = 0, vjust = 0.25,
+            colour = "black", size = CFG$base_size / .pt) +
+  scale_x_log10(breaks = CFG$fold_breaks, labels = fold_label, limits = CFG$fold_limits,
+                expand = expansion(0)) +
+  annotation_logticks(sides = "b", outside = FALSE, linewidth = 0.3,
+                      short = unit(0.6, "mm"), mid = unit(1, "mm"), long = unit(1.5, "mm")) +
+  scale_colour_manual(values = CFG$strain_cols, guide = "none") +
+  labs(x = "Fold difference in viable CFU/mL at day 7 (reduced oxygen/aerobic)", y = NULL) +
+  theme_pub() +
+  theme(axis.text.y = element_text(face = "italic", size = CFG$base_size + 1),
+        panel.grid.major.x = element_blank())
+
+# Panel B
+band <- descriptives |>
+  mutate(spread = if (CFG$error_band == "sem") sem_log10_change else sd_log10_change,
+         lower = mean_log10_change - spread, upper = mean_log10_change + spread)
+
+brackets <- band |>
+  select(strain, label, condition, day, mean_log10_change) |>
+  pivot_wider(names_from = condition, values_from = mean_log10_change) |>
+  mutate(strain = as.character(strain)) |>
+  left_join(select(stats, strain, day, p_adj, stars), by = c("strain", "day")) |>
+  filter(p_adj < 0.05)
+
+panel_b <- ggplot(band, aes(day, mean_log10_change, colour = condition,
+                            fill = condition, linetype = condition)) +
+  geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.18, colour = NA) +
+  geom_line(linewidth = 0.6) +
+  geom_point(size = 1.2) +
+  geom_segment(data = brackets,
+               aes(x = day, xend = day, y = `Reduced oxygen`, yend = Aerobic),
+               inherit.aes = FALSE, linewidth = 0.35) +
+  geom_text(data = brackets,
+            aes(x = day + 0.15, y = (`Reduced oxygen` + Aerobic) / 2, label = stars),
+            inherit.aes = FALSE, hjust = 0, size = CFG$base_size / .pt) +
+  facet_wrap(~ label, nrow = 1) +
+  scale_x_continuous(breaks = CFG$days, expand = expansion(add = c(0.3, 0.6))) +
+  scale_y_continuous(breaks = CFG$change_breaks) +
+  scale_colour_manual(values = CFG$cond_cols, name = NULL) +
+  scale_fill_manual(values = CFG$cond_cols, name = NULL) +
+  scale_linetype_manual(values = CFG$cond_lty, name = NULL) +
+  labs(x = "Time (days)",
+       y = expression(atop(log[10]~"change from", "condition-specific baseline"))) +
+  coord_cartesian(clip = "off") +
+  theme_pub() +
+  theme(legend.position = "top", legend.margin = margin(0, 0, 0, 0),
+        legend.box.spacing = unit(1, "mm"), panel.spacing.x = unit(7, "mm"),
+        plot.margin = margin(4, 16, 4, 4))
+
+# Combine and save
+fig <- panel_a / panel_b +
+  plot_layout(heights = c(1, 1.4)) +
+  plot_annotation(tag_levels = "A")
+
+save_fig(fig, "bifidobacteria_preservation", CFG$fig_w_mm, CFG$fig_h_mm)
+fig
+```
+
+## Session
+
+```{r session}
+writeLines(capture.output(sessionInfo()), file.path(CFG$results_dir, "sessionInfo.txt"))
+```
