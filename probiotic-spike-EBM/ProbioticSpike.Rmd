@@ -42,7 +42,6 @@ CFG <- list(
   endpoint_day  = 7,
   df_contrast   = 4,
   conf_level    = 0.95,
-  error_band    = "sem",
   strain_cols   = c("B. infantis" = "#3B75AF", "B. longum" = "#519E3E",
                     "B. bifidum"  = "#8D69B8", "B. breve"  = "#C53A32"),
   cond_cols     = c("Reduced oxygen" = "#3B75AF", "Aerobic" = "#CA6627"),
@@ -171,7 +170,6 @@ descriptives <- normalised |>
             sd_log10_cfu      = sd(log10_cfu),
             mean_log10_change = mean(log10_change),
             sd_log10_change   = sd(log10_change),
-            sem_log10_change  = sd_log10_change / sqrt(n),
             .groups = "drop")
 
 write_res(select(normalised, strain, condition, day, replicate, CFU_per_mL, log10_change),
@@ -300,8 +298,8 @@ panel_a <- ggplot(d7, aes(y = label, colour = label)) +
 
 # Panel B
 band <- descriptives |>
-  mutate(spread = if (CFG$error_band == "sem") sem_log10_change else sd_log10_change,
-         lower = mean_log10_change - spread, upper = mean_log10_change + spread)
+  mutate(lower = mean_log10_change - sd_log10_change,
+         upper = mean_log10_change + sd_log10_change)
 
 brackets <- band |>
   select(strain, label, condition, day, mean_log10_change) |>

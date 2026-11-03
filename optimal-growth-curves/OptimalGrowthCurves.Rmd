@@ -68,7 +68,6 @@ CFG <- list(
   ),
   cond_cols = c("Reduced oxygen" = "#3B75AF", "Aerobic" = "#CA6627"),
   cond_lty  = c("Reduced oxygen" = "dashed",  "Aerobic" = "solid"),
-  ribbon    = "SEM",
 
   time_breaks = c(0, 8, 24, 48),
   time_limits = c(0, 48),
@@ -206,10 +205,9 @@ od %>% count(strain, condition, name = "n_obs")
 desc <- od %>%
   group_by(strain, condition, time_h) %>%
   summarise(n = n(), mean = mean(OD600), sd = sd(OD600),
-            sem = sd(OD600) / sqrt(n()), .groups = "drop") %>%
-  mutate(err = if (CFG$ribbon == "SEM") sem else sd)
+            .groups = "drop")
 
-write.csv(select(desc, -err),
+write.csv(desc,
           file.path(CFG$res_dir, glue("{CFG$metric}_descriptives.csv")),
           row.names = FALSE)
 desc
@@ -324,7 +322,7 @@ pA <- ggplot(a_dat, aes(y = strain, colour = strain)) +
 
 pB <- ggplot(desc, aes(time_h, mean, colour = condition, fill = condition,
                        linetype = condition, group = condition)) +
-  geom_ribbon(aes(ymin = mean - err, ymax = mean + err), alpha = 0.18,
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd), alpha = 0.18,
               colour = NA, show.legend = FALSE) +
   annotate("segment", x = -Inf, xend = -Inf, y = -Inf, yend = Inf,
            colour = "black", linewidth = 0.4) +

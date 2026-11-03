@@ -61,7 +61,6 @@ CFG <- list(
   ),
   cond_cols = c("Reduced oxygen" = "#3B75AF", "Aerobic" = "#CA6627"),
   cond_lty  = c("Reduced oxygen" = "dashed",  "Aerobic" = "solid"),
-  ribbon    = "SEM",
 
   time_breaks = c(10, 60, 120, 240),
   fold_breaks = 10^(0:5),
@@ -204,11 +203,9 @@ desc <- norm %>%
   summarise(n    = n(),
             mean = mean(log10_change),
             sd   = sd(log10_change),
-            sem  = sd(log10_change) / sqrt(n()),
-            .groups = "drop") %>%
-  mutate(err = if (CFG$ribbon == "SEM") sem else sd)
+            .groups = "drop")
 
-write.csv(select(desc, -err),
+write.csv(desc,
           file.path(CFG$res_dir, glue("{CFG$metric}_descriptives.csv")),
           row.names = FALSE)
 desc
@@ -317,7 +314,7 @@ brk <- desc %>%
 
 pB <- ggplot(desc, aes(time_min, mean, colour = condition, fill = condition,
                        linetype = condition, group = condition)) +
-  geom_ribbon(aes(ymin = mean - err, ymax = mean + err), alpha = 0.18,
+  geom_ribbon(aes(ymin = mean - sd, ymax = mean + sd), alpha = 0.18,
               colour = NA, show.legend = FALSE) +
   geom_line(linewidth = 0.7) +
   geom_point(size = 1.3) +
